@@ -11,18 +11,33 @@ const recommendationSchema = new mongoose.Schema({
     required: true,
   },
   reasons: [{ type: String }],
+  decision: {
+    type: String,
+    enum: ['SELL_TODAY', 'WAIT', 'MOVE_PRODUCE', 'INSUFFICIENT_DATA'],
+  },
+  decisionStatus: { type: String, enum: ['actionable', 'insufficient_data'] },
+  confidence: { type: Number, default: null },
 
   // Market comparison snapshot used to generate this recommendation
   marketsConsidered: [{
     marketId: { type: mongoose.Schema.Types.ObjectId, ref: 'Market' },
     marketName: String,
+    price: Number,
+    unit: String,
+    normalizedPricePerKg: Number,
+    currency: String,
+    observedAt: Date,
+    priceFresh: Boolean,
     distance: Number,
+    distanceKm: Number,
     travelTime: String,
+    travelTimeMinutes: Number,
     pricePerKg: Number,
     transportCost: Number,
     grossValue: Number,
     netValue: Number,
     safeToTravel: Boolean,
+    availability: String,
   }],
 
   bestMarketId: { type: mongoose.Schema.Types.ObjectId, ref: 'Market' },
@@ -31,6 +46,16 @@ const recommendationSchema = new mongoose.Schema({
   remainingShelfLife: { type: Number },
   spoilageRisk: { type: String },
   quantity: { type: Number },
+  shelfLife: {
+    available: Boolean,
+    remainingDays: Number,
+  },
+  dataQuality: {
+    marketPriceFresh: Boolean,
+    transportCostAvailable: Boolean,
+    distanceAvailable: Boolean,
+    travelTimeAvailable: Boolean,
+  },
 
   generatedAt: { type: Date, default: Date.now },
 }, { timestamps: true });
