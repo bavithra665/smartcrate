@@ -3,8 +3,8 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import InputField from '../components/InputField';
 import { cropTypes, maturityStages, storageConditions } from '../data/mockData';
-import { predictShelfLife } from '../utils/predictionUtils';
 import { createHarvest, normalizeHarvest, toHarvestPayload, updateHarvest } from '../api/harvestApi';
+import { submitSensorReading } from '../api/sensorApi';
 import {
   FaSeedling, FaThermometerHalf, FaTint, FaFlask,
   FaCheckCircle, FaChartLine, FaMicrochip, FaWifi,
@@ -61,7 +61,6 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
   const [editingId] = useState(editingHarvest?._id || editingHarvest?.id || null);
   const [form, setForm] = useState(() => editingHarvest ? formFromHarvest(editingHarvest) : initialForm);
   const [errors, setErrors] = useState({});
-  const [prediction, setPrediction] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sensorLoading, setSensorLoading] = useState(false);
@@ -131,19 +130,12 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
   const handlePredict = () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    setLoading(true);
-    // Future: POST /api/prediction
-    setTimeout(() => {
-      const result = predictShelfLife(form);
-      setPrediction(result);
-      setLoading(false);
-    }, 1000);
+    setErrors({ api: 'Sensor data is ready. Save the harvest to request a backend prediction.' });
   };
 
   const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    if (!editingId && !prediction) { handlePredict(); return; }
     setLoading(true);
     setErrors({});
     try {
@@ -155,17 +147,22 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
         ...savedHarvest,
         ...form,
         crop: savedHarvest.crop || form.cropType,
-        predictedShelfLife: prediction?.shelfLife,
-        remainingShelfLife: prediction?.shelfLife,
-        spoilageRisk: prediction?.risk,
-        recommendation: prediction?.risk === 'High' ? 'Sell Today' : 'Wait for a Better Price',
       };
+      if (sensorFetched && form.temperature && form.humidity) {
+        await submitSensorReading({
+          harvestId: savedHarvest.id,
+          temperature: Number(form.temperature),
+          humidity: Number(form.humidity),
+          ethylene: form.ethyleneLevel ? Number(form.ethyleneLevel) : undefined,
+          voc: form.vocLevel ? Number(form.vocLevel) : undefined,
+        });
+      }
       onAddHarvest?.(harvestForUi);
       setSaved(true);
       if (editingId) {
         setTimeout(() => navigate('/history'), 900);
       } else {
-        setTimeout(() => navigate('/prediction', { state: { harvest: harvestForUi, prediction } }), 1200);
+        setTimeout(() => navigate('/prediction', { state: { harvest: harvestForUi } }), 1200);
       }
     } catch (apiError) {
       const validationError = apiError.response?.data?.errors?.[0]?.msg;
@@ -298,8 +295,8 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
                   </div>
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
                     {sensorFetched
-                      ? 'Live readings loaded — maturity & storage auto-detected'
-                      : 'Click to fetch live readings from device'}
+                      ? 'Simulated readings loaded — maturity & storage auto-detected'
+                      : 'Click to generate simulated readings'}
                   </div>
                 </div>
               </div>
@@ -314,7 +311,7 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
                 ) : sensorFetched ? (
                   <><FaSyncAlt /> Refresh Data</>
                 ) : (
-                  <><FaWifi /> Fetch Sensor Data</>
+                  <><FaWifi /> Generate Simulated Data</>
                 )}
               </button>
             </div>
@@ -407,52 +404,14 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
                 </div>
 
                 <div className="sensor-note">
-                  <FaMicrochip /> All values auto-filled from hardware. Click "Refresh Data" to re-read.
+                  <FaMicrochip /> Simulated sensor input for this demo. Real ESP32 readings are not connected yet.
                 </div>
               </>
             )}
           </div>
         </div>
 
-        {/* Prediction Result */}
-        {prediction && (
-          <div className="card prediction-preview">
-            <div className="prediction-preview-header">
-              <FaCheckCircle style={{ color: 'var(--primary)', fontSize: '1.3rem' }} />
-              <div>
-                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-dark)' }}>
-                  Prediction Result
-                </div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>
-                  <span className="demo-badge">Demo Prediction</span>
-                </div>
-              </div>
-            </div>
-            <div className="prediction-preview-stats">
-              <div className="pred-stat">
-                <div className="pred-stat-value" style={{ color: 'var(--primary)' }}>
-                  {prediction.shelfLife} Days
-                </div>
-                <div className="pred-stat-label">Remaining Shelf Life</div>
-              </div>
-              <div className="pred-stat">
-                <div className="pred-stat-value" style={{
-                  color: prediction.risk === 'High' ? 'var(--risk-high)' :
-                    prediction.risk === 'Medium' ? 'var(--risk-medium)' : 'var(--risk-low)'
-                }}>
-                  {prediction.risk}
-                </div>
-                <div className="pred-stat-label">Spoilage Risk</div>
-              </div>
-              <div className="pred-stat">
-                <div className="pred-stat-value" style={{ color: 'var(--primary)' }}>
-                  {prediction.confidence}%
-                </div>
-                <div className="pred-stat-label">Confidence</div>
-              </div>
-            </div>
-          </div>
-        )}
+        <div className="alert alert-info"><FaChartLine /> Save the harvest and submit the simulated readings to generate the backend spoilage-risk prediction.</div>
 
         {/* Action Buttons */}
         <div className="add-harvest-actions">
@@ -460,14 +419,10 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
             Cancel
           </button>
           <button className="btn btn-outline" onClick={handlePredict} disabled={loading}>
-            {loading && !prediction ? (
-              <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Predicting...</>
-            ) : (
-              <><FaChartLine /> Predict Shelf Life</>
-            )}
+            <><FaChartLine /> Validate Sensor Data</>
           </button>
           <button className="btn btn-primary" onClick={handleSave} disabled={loading || saved}>
-            {loading && prediction ? (
+            {loading ? (
               <><span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> Saving...</>
             ) : (
               <><FaCheckCircle /> Save Harvest</>

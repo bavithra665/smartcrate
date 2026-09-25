@@ -43,6 +43,7 @@ export default function Dashboard({ farmer, onLogout }) {
 
   const highRisk = activeHarvests.filter(h => h.spoilageRisk === 'High').length;
   const medRisk = activeHarvests.filter(h => h.spoilageRisk === 'Medium').length;
+  const lowRisk = activeHarvests.filter(h => h.spoilageRisk === 'Low').length;
 
   return (
     <DashboardLayout farmer={farmer} pageTitle="Dashboard" onLogout={onLogout}>
@@ -83,7 +84,7 @@ export default function Dashboard({ farmer, onLogout }) {
           />
           <DashboardCard
             title="Safe Batches"
-            value={activeHarvests.length - highRisk - medRisk}
+            value={lowRisk}
             subtitle="Good condition"
             icon={<FaCheckCircle />}
             color="var(--risk-low)"

@@ -1,27 +1,67 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import RiskBadge from '../components/RiskBadge';
-import ProgressBar from '../components/ProgressBar';
-import { mockHarvests } from '../data/mockData';
+import { getLatestPrediction } from '../api/predictionApi';
 import { FaSeedling, FaThermometerHalf, FaTint, FaFlask, FaLightbulb, FaArrowRight } from 'react-icons/fa';
 import './Prediction.css';
 
 export default function Prediction({ farmer, onLogout }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const harvest = location.state?.harvest || mockHarvests[0];
-  const prediction = location.state?.prediction || {
-    shelfLife: harvest.remainingShelfLife || harvest.predictedShelfLife || 3,
-    risk: harvest.spoilageRisk || 'Medium',
-    confidence: 89,
-  };
+  const harvest = location.state?.harvest;
+  const [prediction, setPrediction] = useState(null);
+  const [loading, setLoading] = useState(Boolean(harvest?.id || harvest?._id));
+  const [error, setError] = useState('');
+  const harvestId = harvest?._id || harvest?.id;
 
-  const shelfLife = prediction.shelfLife || harvest.remainingShelfLife;
-  const maxShelfLife = harvest.predictedShelfLife || shelfLife;
-  const pct = Math.min(100, Math.round((shelfLife / maxShelfLife) * 100));
-  const circleColor = prediction.risk === 'High' ? 'var(--risk-high)' :
-    prediction.risk === 'Medium' ? 'var(--risk-medium)' : 'var(--risk-low)';
+  useEffect(() => {
+    if (!harvestId) return undefined;
+
+    let mounted = true;
+    let attempts = 0;
+    let retryTimer;
+
+    const loadPrediction = async () => {
+      try {
+        const response = await getLatestPrediction(harvestId);
+        if (mounted) {
+          setPrediction(response.data);
+          setLoading(false);
+        }
+      } catch (apiError) {
+        if (!mounted) return;
+        if (apiError.response?.status === 404 && attempts < 4) {
+          attempts += 1;
+          retryTimer = setTimeout(loadPrediction, 1500);
+          return;
+        }
+        if (apiError.response?.status !== 404) setError('Unable to load prediction.');
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadPrediction();
+    return () => {
+      mounted = false;
+      clearTimeout(retryTimer);
+    };
+  }, [harvestId]);
+
+  const risk = prediction?.spoilageRisk;
+  const circleColor = risk === 'High' ? 'var(--risk-high)' :
+    risk === 'Medium' ? 'var(--risk-medium)' : 'var(--risk-low)';
+
+  if (!harvest) {
+    return (
+      <DashboardLayout farmer={farmer} pageTitle="Shelf-Life Prediction" onLogout={onLogout}>
+        <div className="page-content">
+          <h1 className="page-title">Shelf-Life Prediction</h1>
+          <div className="alert alert-info">Open a harvest from the dashboard to view its prediction.</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout farmer={farmer} pageTitle="Shelf-Life Prediction" onLogout={onLogout}>
@@ -30,8 +70,8 @@ export default function Prediction({ farmer, onLogout }) {
           <div>
             <h1 className="page-title">Shelf-Life Prediction</h1>
             <p className="page-subtitle">
-              <span className="demo-badge">Demo Prediction</span>
-              &nbsp;Results based on entered crop and environmental conditions.
+              <span className="demo-badge">Backend Prediction</span>
+              &nbsp;Spoilage risk from the SmartCrate prediction service.
             </p>
           </div>
           <button className="btn btn-primary" onClick={() => navigate('/recommendation', { state: { harvest } })}>
@@ -46,33 +86,40 @@ export default function Prediction({ farmer, onLogout }) {
               <div style={{ fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-light)', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: 8 }}>
                 <FaSeedling style={{ marginRight: 6 }} />{harvest.crop || harvest.cropType}
               </div>
-              {/* Circular indicator */}
-              <div className="prediction-circle" style={{ '--circle-color': circleColor }}>
-                <div className="prediction-circle-inner">
-                  <div className="prediction-circle-value">{shelfLife}</div>
-                  <div className="prediction-circle-unit">Days</div>
-                </div>
-              </div>
-              <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-medium)', marginBottom: 16 }}>
-                Remaining Shelf Life
-              </div>
-              <RiskBadge risk={prediction.risk} />
+              {loading ? <div className="alert alert-info">Loading prediction...</div> : prediction ? (
+                <>
+                  <div className="prediction-circle" style={{ '--circle-color': circleColor }}>
+                    <div className="prediction-circle-inner">
+                      <div className="prediction-circle-value">--</div>
+                      <div className="prediction-circle-unit">Days</div>
+                    </div>
+                  </div>
+                  <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-medium)', marginBottom: 16 }}>
+                    Remaining shelf-life prediction is not available yet.
+                  </div>
+                  <RiskBadge risk={risk} />
+                </>
+              ) : (
+                <>
+                  <div className="prediction-circle" style={{ '--circle-color': 'var(--border)' }}>
+                    <div className="prediction-circle-inner"><div className="prediction-circle-value">--</div></div>
+                  </div>
+                  <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-medium)' }}>
+                    Prediction pending. Sensor data has not produced a prediction yet.
+                  </div>
+                </>
+              )}
             </div>
 
-            <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-medium)', marginBottom: 8 }}>
-                Shelf Life Progress
-              </div>
-              <ProgressBar value={shelfLife} max={maxShelfLife} color={circleColor} />
-            </div>
+            {error && <div className="alert alert-error">{error}</div>}
 
             <div className="prediction-confidence">
-              <span>Prediction Confidence</span>
+              <span>Spoilage-risk confidence</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <div style={{ flex: 1, background: 'var(--border)', borderRadius: 20, height: 8, overflow: 'hidden' }}>
-                  <div style={{ width: `${prediction.confidence}%`, height: '100%', background: 'var(--primary)', borderRadius: 20 }} />
+                  <div style={{ width: `${prediction?.spoilageRiskConfidence ? prediction.spoilageRiskConfidence * 100 : 0}%`, height: '100%', background: 'var(--primary)', borderRadius: 20 }} />
                 </div>
-                <span style={{ fontWeight: 700, color: 'var(--primary)', minWidth: 36 }}>{prediction.confidence}%</span>
+                <span style={{ fontWeight: 700, color: 'var(--primary)', minWidth: 36 }}>{prediction?.spoilageRiskConfidence ? `${Math.round(prediction.spoilageRiskConfidence * 100)}%` : '--'}</span>
               </div>
             </div>
           </div>
@@ -131,9 +178,10 @@ export default function Prediction({ farmer, onLogout }) {
               <p style={{ fontSize: '0.92rem', color: 'var(--text-medium)', lineHeight: 1.7, marginBottom: 14 }}>
                 The current conditions indicate that the <strong>{harvest.crop || harvest.cropType}</strong> should
                 be sold within the predicted shelf-life period.
-                {prediction.risk === 'High' && ' Immediate action is recommended due to high spoilage risk.'}
-                {prediction.risk === 'Medium' && ' Monitor conditions closely and plan to sell within the next 1–2 days.'}
-                {prediction.risk === 'Low' && ' Conditions are stable. You have time to find the best market price.'}
+                {risk === 'High' && ' Immediate action is recommended due to high spoilage risk.'}
+                {risk === 'Medium' && ' Monitor the batch closely.'}
+                {risk === 'Low' && ' Current spoilage risk is low.'}
+                {!prediction && ' A prediction will appear after sensor data is processed.'}
               </p>
               <div className="prediction-summary-items">
                 <div className="summary-item">
@@ -151,6 +199,7 @@ export default function Prediction({ farmer, onLogout }) {
                 <div className="summary-item">
                   <span>Maturity</span><strong>{harvest.maturityStage || '--'}</strong>
                 </div>
+                {prediction && <div className="summary-item"><span>Model</span><strong>{prediction.modelVersion || prediction.source || '--'}</strong></div>}
               </div>
             </div>
           </div>
