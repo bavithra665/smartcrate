@@ -1,0 +1,84 @@
+{
+  "experiment": "exploratory_spoilage_risk_logistic_regression",
+  "dataset": "ml/dataset/spoilage_sensor_starter.csv",
+  "rows": 5000,
+  "features": [
+    "crop",
+    "maturity_stage",
+    "hours_since_harvest",
+    "temperature_c",
+    "humidity_percent",
+    "ethylene_ppm",
+    "voc_index",
+    "co2_ppm"
+  ],
+  "excluded_features": [
+    "weight_loss_percent"
+  ],
+  "target": "spoilage_risk",
+  "model": "LogisticRegression",
+  "class_weight": "balanced",
+  "random_state": 42,
+  "test_size": 0.2,
+  "split": "stratified train/test; no valid batch/session grouping key was available",
+  "evaluation": {
+    "class_distribution": {
+      "Low": 645,
+      "Medium": 350,
+      "High": 5
+    },
+    "confusion_matrix": {
+      "labels": [
+        "Low",
+        "Medium",
+        "High"
+      ],
+      "matrix": [
+        [
+          557,
+          87,
+          1
+        ],
+        [
+          47,
+          225,
+          78
+        ],
+        [
+          0,
+          1,
+          4
+        ]
+      ]
+    },
+    "precision_per_class": {
+      "Low": 0.9221854304635762,
+      "Medium": 0.7188498402555911,
+      "High": 0.04819277108433735
+    },
+    "recall_per_class": {
+      "Low": 0.8635658914728682,
+      "Medium": 0.6428571428571429,
+      "High": 0.8
+    },
+    "f1_per_class": {
+      "Low": 0.8919135308246597,
+      "Medium": 0.6787330316742082,
+      "High": 0.09090909090909091
+    },
+    "macro_f1": 0.5538518844693195,
+    "weighted_f1": 0.8132953339224239,
+    "support_per_class": {
+      "Low": 645,
+      "Medium": 350,
+      "High": 5
+    }
+  },
+  "limitations": [
+    "Starter dataset provenance and label-generation process are undocumented.",
+    "High class has very few examples and test support is small.",
+    "No batch or session identifier exists for grouped splitting.",
+    "ethylene_ppm calibration and physical sensor provenance are unverified.",
+    "This is not a validated production model."
+  ]
+}
