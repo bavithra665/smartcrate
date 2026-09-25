@@ -63,6 +63,7 @@ jest.mock('../models/OTP', () => ({
 }));
 jest.mock('../services/predictionService', () => ({
   runPrediction: jest.fn().mockResolvedValue(null),
+  calculateHoursSinceHarvest: jest.fn().mockReturnValue(1),
 }));
 
 const request = require('supertest');

@@ -1,6 +1,7 @@
 const SensorReading = require('../models/SensorReading');
 const Harvest = require('../models/Harvest');
 const predictionService = require('../services/predictionService');
+const { calculateHoursSinceHarvest } = predictionService;
 const notificationService = require('../services/notificationService');
 
 /**
@@ -16,6 +17,13 @@ const createReading = async (req, res, next) => {
     const harvest = await Harvest.findById(harvestId);
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });
 
+    const observationTimestamp = new Date();
+    try {
+      calculateHoursSinceHarvest(harvest, observationTimestamp);
+    } catch (error) {
+      return res.status(400).json({ message: error.message });
+    }
+
     const source = deviceId ? 'esp32' : (process.env.NODE_ENV === 'development' ? 'simulator' : 'manual');
 
     const reading = await SensorReading.create({
@@ -24,10 +32,12 @@ const createReading = async (req, res, next) => {
       temperature, humidity, ethylene, voc, co2, currentWeight,
       source,
       deviceId,
+      timestamp: observationTimestamp,
     });
 
     // Trigger prediction asynchronously (don't block the sensor response)
-    predictionService.runPrediction(harvest, reading).catch(console.error);
+    predictionService.runPrediction(harvest, reading, { observationTimestamp })
+      .catch((error) => console.error('[SensorController] Prediction generation failed:', error.message));
 
     res.status(201).json(reading);
   } catch (err) {
