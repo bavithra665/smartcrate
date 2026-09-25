@@ -4,6 +4,7 @@ const Prediction = require('../models/Prediction');
 const SensorReading = require('../models/SensorReading');
 const FarmerFeedback = require('../models/FarmerFeedback');
 const MarketPrice = require('../models/MarketPrice');
+const predictionEvaluationService = require('../services/predictionEvaluationService');
 
 // GET /api/admin/stats
 const getStats = async (req, res, next) => {
@@ -96,4 +97,46 @@ const getFeedbackSummary = async (req, res, next) => {
   }
 };
 
-module.exports = { getStats, getAllFarmers, getAllHarvests, getFeedbackSummary };
+// GET /api/admin/prediction-evaluation
+const getPredictionEvaluation = async (req, res, next) => {
+  try {
+    const evaluation = await predictionEvaluationService.evaluatePredictions();
+    res.json({
+      ...evaluation,
+      records: undefined,
+      message: evaluation.status === 'insufficient_data'
+        ? 'Insufficient labeled outcomes for reliable evaluation.'
+        : 'Evaluation uses explicit farmer-reported spoilage outcomes only.',
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/admin/ml-data-readiness
+const getMlDataReadiness = async (req, res, next) => {
+  try {
+    res.json(await predictionEvaluationService.getDataQualityReport());
+  } catch (err) {
+    next(err);
+  }
+};
+
+// GET /api/admin/ml-data-preparation
+const getMlDataPreparation = async (req, res, next) => {
+  try {
+    res.json(await predictionEvaluationService.prepareMlData());
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = {
+  getStats,
+  getAllFarmers,
+  getAllHarvests,
+  getFeedbackSummary,
+  getPredictionEvaluation,
+  getMlDataReadiness,
+  getMlDataPreparation,
+};

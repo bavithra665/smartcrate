@@ -4,6 +4,40 @@
   gap: 24px;
 }
 
+.admin-evaluation-note,
+.admin-evaluation-message {
+  color: var(--text-light);
+  font-size: 0.85rem;
+  margin-top: 6px;
+}
+
+.admin-evaluation-stats {
+  margin-top: 20px;
+}
+
+.admin-evaluation-stats > div {
+  padding: 14px;
+  background: var(--primary-bg);
+  border-radius: 8px;
+}
+
+.admin-evaluation-stats strong,
+.admin-evaluation-stats span {
+  display: block;
+}
+
+.admin-evaluation-stats strong {
+  font-size: 1.25rem;
+  color: var(--text-dark);
+  overflow-wrap: anywhere;
+}
+
+.admin-evaluation-stats span {
+  margin-top: 4px;
+  color: var(--text-light);
+  font-size: 0.78rem;
+}
+
 @media (max-width: 768px) {
   .admin-charts { grid-template-columns: 1fr; }
 }

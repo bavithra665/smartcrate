@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import DashboardCard from '../components/DashboardCard';
 import { mockAdminStats } from '../data/mockData';
+import { getPredictionEvaluation } from '../api/adminApi';
 import {
   FaUsers, FaSeedling, FaLeaf, FaExclamationTriangle, FaStore, FaClock
 } from 'react-icons/fa';
@@ -16,6 +17,24 @@ ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarEle
 
 export default function Admin({ farmer, onLogout }) {
   const stats = mockAdminStats;
+  const [evaluation, setEvaluation] = useState(null);
+  const [evaluationError, setEvaluationError] = useState('');
+  const [evaluationLoading, setEvaluationLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    getPredictionEvaluation()
+      .then((response) => {
+        if (mounted) setEvaluation(response.data);
+      })
+      .catch((error) => {
+        if (mounted) setEvaluationError(error.response?.data?.message || 'Unable to load prediction evaluation.');
+      })
+      .finally(() => {
+        if (mounted) setEvaluationLoading(false);
+      });
+    return () => { mounted = false; };
+  }, []);
 
   const cropChartData = {
     labels: stats.cropDistribution.map(c => c.crop),
@@ -76,6 +95,32 @@ export default function Admin({ farmer, onLogout }) {
             subtitle="Registered markets" icon={<FaStore />} color="var(--risk-medium)" />
           <DashboardCard title="Avg. Shelf Life" value="7.2 Days"
             subtitle="Across all active batches" icon={<FaClock />} color="var(--primary)" />
+        </div>
+
+        <div className="card admin-evaluation-card" style={{ marginBottom: 28 }}>
+          <div className="section-header">
+            <div>
+              <div className="section-title">Prediction Evaluation</div>
+              <div className="admin-evaluation-note">Real-world outcomes are evaluated separately from the production model.</div>
+            </div>
+            <span className={`badge ${evaluation?.status === 'ok' ? 'badge-success' : 'badge-info'}`}>
+              {evaluationLoading ? 'Loading' : evaluation?.status === 'ok' ? 'Evaluation available' : 'Insufficient data'}
+            </span>
+          </div>
+          {evaluationError && <div className="alert alert-error">{evaluationError}</div>}
+          {!evaluationLoading && !evaluationError && (
+            <>
+              <div className="grid-4 admin-evaluation-stats">
+                <div><strong>{evaluation?.evaluatedSamples ?? 0}</strong><span>Evaluated samples</span></div>
+                <div><strong>{Math.round((evaluation?.outcomeCoverage || 0) * 100)}%</strong><span>Outcome coverage</span></div>
+                <div><strong>{evaluation?.modelVersions?.join(', ') || 'Unavailable'}</strong><span>Model versions</span></div>
+                <div><strong>{evaluation?.metrics?.available ? `${Math.round((evaluation.metrics.f1 || 0) * 100)}%` : 'Unavailable'}</strong><span>Binary spoilage F1</span></div>
+              </div>
+              <p className="admin-evaluation-message">
+                {evaluation?.message || 'Insufficient labeled outcomes for reliable evaluation.'}
+              </p>
+            </>
+          )}
         </div>
 
         {/* Charts */}

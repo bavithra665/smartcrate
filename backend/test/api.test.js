@@ -19,6 +19,7 @@ jest.mock('../models/Harvest', () => ({
   aggregate: jest.fn(),
 }));
 jest.mock('../models/Prediction', () => ({
+  find: jest.fn(),
   findOne: jest.fn(),
   create: jest.fn(),
   countDocuments: jest.fn(),
@@ -41,6 +42,8 @@ jest.mock('../models/Device', () => ({
 jest.mock('../models/FarmerFeedback', () => ({
   create: jest.fn(),
   find: jest.fn(),
+  countDocuments: jest.fn(),
+  aggregate: jest.fn(),
 }));
 jest.mock('../models/Market', () => ({
   find: jest.fn(),
@@ -584,5 +587,25 @@ describe('admin authorization', () => {
 
     expect(response.status).toBe(403);
     expect(response.body.message).toBe('Admin access required');
+  });
+
+  test('returns aggregate prediction evaluation only to admins', async () => {
+    Farmer.findById.mockReturnValue({
+      select: jest.fn().mockResolvedValue({ ...user, role: 'admin' }),
+    });
+    Prediction.find.mockResolvedValue([]);
+    FarmerFeedback.find.mockResolvedValue([]);
+    Harvest.find.mockResolvedValue([]);
+    SensorReading.find.mockResolvedValue([]);
+
+    const response = await request(app)
+      .get('/api/admin/prediction-evaluation')
+      .set(auth());
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe('insufficient_data');
+    expect(response.body.evaluatedSamples).toBe(0);
+    expect(response.body.message).toBe('Insufficient labeled outcomes for reliable evaluation.');
+    expect(response.body.records).toBeUndefined();
   });
 });
