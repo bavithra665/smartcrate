@@ -20,5 +20,6 @@ const sensorReadingSchema = new mongoose.Schema({
 
 // Index for fast queries by harvest and time
 sensorReadingSchema.index({ harvestId: 1, timestamp: -1 });
+sensorReadingSchema.index({ deviceId: 1, timestamp: 1 }, { unique: true, sparse: true });
 
 module.exports = mongoose.model('SensorReading', sensorReadingSchema);

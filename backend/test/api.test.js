@@ -34,6 +34,10 @@ jest.mock('../models/SensorReading', () => ({
   find: jest.fn(),
   countDocuments: jest.fn(),
 }));
+jest.mock('../models/Device', () => ({
+  findOne: jest.fn(),
+  updateOne: jest.fn(),
+}));
 jest.mock('../models/FarmerFeedback', () => ({
   create: jest.fn(),
   find: jest.fn(),
@@ -74,6 +78,7 @@ const Harvest = require('../models/Harvest');
 const Prediction = require('../models/Prediction');
 const Recommendation = require('../models/Recommendation');
 const SensorReading = require('../models/SensorReading');
+const Device = require('../models/Device');
 const FarmerFeedback = require('../models/FarmerFeedback');
 const MarketPrice = require('../models/MarketPrice');
 
@@ -92,6 +97,7 @@ beforeEach(() => {
   Farmer.findById.mockReturnValue({
     select: jest.fn().mockResolvedValue(user),
   });
+  Device.updateOne.mockResolvedValue(null);
 });
 
 describe('health and authentication protection', () => {
@@ -245,7 +251,8 @@ describe('sensor and feedback validation', () => {
 
     const response = await request(app)
       .post('/api/sensors/readings')
-      .send({ harvestId, temperature: 25, humidity: 60, voc: 1.2 });
+      .set(auth())
+      .send({ harvestId, source: 'simulator', temperature: 25, humidity: 60, voc: 1.2 });
 
     expect(response.status).toBe(201);
     expect(SensorReading.create).toHaveBeenCalledWith(expect.objectContaining({
@@ -253,6 +260,61 @@ describe('sensor and feedback validation', () => {
       temperature: 25,
       humidity: 60,
     }));
+  });
+
+  test('accepts an authorized hardware device submission with optional fields omitted', async () => {
+    const device = { _id: 'device-1', deviceId: 'SC-ESP32-001', farmerId, apiKeyHash: require('crypto').createHash('sha256').update('device-secret').digest('hex') };
+    Device.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue(device) });
+    Harvest.findById.mockResolvedValue({ _id: harvestId, farmerId });
+    SensorReading.findOne.mockResolvedValue(null);
+    SensorReading.create.mockResolvedValue({ _id: 'reading-hardware', harvestId });
+
+    const response = await request(app)
+      .post('/api/sensors/readings')
+      .set('X-Device-Api-Key', 'device-secret')
+      .send({ deviceId: 'SC-ESP32-001', harvestId, temperature: 25, humidity: 60 });
+
+    expect(response.status).toBe(201);
+    expect(SensorReading.create).toHaveBeenCalledWith(expect.objectContaining({
+      deviceId: 'SC-ESP32-001',
+      source: 'esp32',
+    }));
+  });
+
+  test('rejects an unauthorized hardware device', async () => {
+    Device.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue(null) });
+
+    const response = await request(app)
+      .post('/api/sensors/readings')
+      .set('X-Device-Api-Key', 'wrong-secret')
+      .send({ deviceId: 'SC-ESP32-001', harvestId, temperature: 25, humidity: 60 });
+
+    expect(response.status).toBe(401);
+    expect(Harvest.findById).not.toHaveBeenCalled();
+  });
+
+  test('rejects a device owned by a different farmer', async () => {
+    const device = { _id: 'device-1', deviceId: 'SC-ESP32-001', farmerId: '507f1f77bcf86cd799439099', apiKeyHash: require('crypto').createHash('sha256').update('device-secret').digest('hex') };
+    Device.findOne.mockReturnValue({ select: jest.fn().mockResolvedValue(device) });
+    Harvest.findById.mockResolvedValue({ _id: harvestId, farmerId });
+
+    const response = await request(app)
+      .post('/api/sensors/readings')
+      .set('X-Device-Api-Key', 'device-secret')
+      .send({ deviceId: 'SC-ESP32-001', harvestId, temperature: 25, humidity: 60 });
+
+    expect(response.status).toBe(403);
+  });
+
+  test('rejects future observations', async () => {
+    Harvest.findById.mockResolvedValue({ _id: harvestId, farmerId });
+
+    const response = await request(app)
+      .post('/api/sensors/readings')
+      .set(auth())
+      .send({ harvestId, source: 'simulator', temperature: 25, humidity: 60, observedAt: '2999-01-01T00:00:00.000Z' });
+
+    expect(response.status).toBe(400);
   });
 
   test('always uses the authenticated farmer id for feedback', async () => {

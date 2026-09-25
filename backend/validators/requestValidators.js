@@ -63,13 +63,15 @@ const harvestIdValidators = [mongoId('id')];
 
 const sensorReadingValidators = [
   body('harvestId').isMongoId().withMessage('harvestId must be a valid MongoDB id'),
-  body('temperature').optional({ values: 'falsy' }).isFloat({ min: -50, max: 100 }),
-  body('humidity').optional({ values: 'falsy' }).isFloat({ min: 0, max: 100 }),
-  body('ethylene').optional({ values: 'falsy' }).isFloat({ min: 0 }),
-  body('voc').optional({ values: 'falsy' }).isFloat({ min: 0 }),
-  body('co2').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('source').optional().isIn(['esp32', 'manual', 'simulator']),
+  body('temperature').isFloat({ min: 15, max: 40 }).withMessage('temperature must be between 15 and 40 °C'),
+  body('humidity').isFloat({ min: 30, max: 95 }).withMessage('humidity must be between 30 and 95%'),
+  body('ethylene').optional({ values: 'falsy' }).isFloat({ min: 0.066, max: 15 }).withMessage('ethylene must be between 0.066 and 15 ppm when provided'),
+  body('voc').optional({ values: 'falsy' }).isFloat({ min: 0.1, max: 6.02 }).withMessage('voc must be between 0.1 and 6.02'),
+  body('co2').optional({ values: 'falsy' }).isFloat({ min: 300, max: 5000 }).withMessage('co2 must be between 300 and 5000 ppm'),
   body('currentWeight').optional({ values: 'falsy' }).isFloat({ min: 0 }),
-  body('deviceId').optional({ values: 'falsy' }).trim().isLength({ max: 100 }),
+  body('deviceId').optional({ values: 'falsy' }).trim().matches(/^[A-Za-z0-9._-]{3,100}$/).withMessage('deviceId has an invalid format'),
+  body('observedAt').optional().isISO8601({ strict: true }).withMessage('observedAt must be an ISO-8601 timestamp'),
 ];
 
 const sensorHarvestValidators = [mongoId('harvestId')];

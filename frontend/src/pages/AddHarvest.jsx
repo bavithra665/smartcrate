@@ -150,11 +150,13 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
       };
       if (sensorFetched && form.temperature && form.humidity) {
         await submitSensorReading({
+          source: 'simulator',
           harvestId: savedHarvest.id,
           temperature: Number(form.temperature),
           humidity: Number(form.humidity),
           ethylene: form.ethyleneLevel ? Number(form.ethyleneLevel) : undefined,
           voc: form.vocLevel ? Number(form.vocLevel) : undefined,
+          observedAt: new Date().toISOString(),
         });
       }
       onAddHarvest?.(harvestForUi);
