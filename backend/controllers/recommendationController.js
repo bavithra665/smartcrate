@@ -16,6 +16,7 @@ const generateRecommendation = async (req, res, next) => {
 const getLatestRecommendation = async (req, res, next) => {
   try {
     const rec = await Recommendation.findOne({ harvestId: req.params.harvestId })
+      .where({ farmerId: req.farmer._id })
       .sort({ generatedAt: -1 })
       .populate('bestMarketId');
     if (!rec) return res.status(404).json({ message: 'No recommendation found' });

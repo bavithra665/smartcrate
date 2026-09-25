@@ -31,7 +31,9 @@ export default function HarvestCard({ harvest }) {
             <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>{harvest.variety}</div>
           </div>
         </div>
-        <RiskBadge risk={harvest.spoilageRisk} />
+        {harvest.spoilageRisk
+          ? <RiskBadge risk={harvest.spoilageRisk} />
+          : <span className="badge badge-info">Prediction Pending</span>}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
@@ -53,7 +55,11 @@ export default function HarvestCard({ harvest }) {
         <div style={{ fontSize: '0.82rem', color: 'var(--text-medium)', marginBottom: 6, fontWeight: 600 }}>
           Remaining Shelf Life
         </div>
-        <ProgressBar value={harvest.remainingShelfLife} max={harvest.predictedShelfLife} />
+        {typeof harvest.remainingShelfLife === 'number' && typeof harvest.predictedShelfLife === 'number' ? (
+          <ProgressBar value={harvest.remainingShelfLife} max={harvest.predictedShelfLife} />
+        ) : (
+          <div className="badge badge-info">Prediction pending</div>
+        )}
       </div>
 
       <div style={{
@@ -64,7 +70,7 @@ export default function HarvestCard({ harvest }) {
       }}>
         <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--text-medium)' }}>Recommendation:</span>
         <span style={{ fontSize: '0.88rem', fontWeight: 700, color: recColor[harvest.recommendation] || 'var(--primary)' }}>
-          {harvest.recommendation}
+          {harvest.recommendation || 'Pending prediction'}
         </span>
       </div>
 

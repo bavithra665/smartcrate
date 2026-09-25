@@ -24,7 +24,7 @@ const sendOtp = async (req, res, next) => {
 const verifyOtp = async (req, res, next) => {
   try {
     const { mobile, otp } = req.body;
-    const result = await verifyOTP(mobile, otp);
+    const result = await verifyOTP(mobile, otp, { consume: false });
     if (!result.valid) return res.status(400).json({ message: result.message });
 
     const farmer = await Farmer.findOne({ mobile });
@@ -33,6 +33,7 @@ const verifyOtp = async (req, res, next) => {
       return res.status(404).json({ message: 'Farmer not registered', needsRegistration: true, mobile });
     }
 
+    await verifyOTP(mobile, otp);
     const token = generateToken(farmer._id);
     res.json({ token, farmer });
   } catch (err) {

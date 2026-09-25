@@ -1,5 +1,10 @@
 const Harvest = require('../models/Harvest');
-const Notification = require('../models/Notification');
+
+const harvestUpdateFields = [
+  'crop', 'variety', 'quantity', 'unit', 'initialWeight',
+  'harvestDate', 'harvestTime', 'maturityStage', 'storageType',
+  'storageCondition', 'farmerLocation', 'notes', 'status',
+];
 
 // POST /api/harvests
 const createHarvest = async (req, res, next) => {
@@ -52,9 +57,15 @@ const getHarvest = async (req, res, next) => {
 // PUT /api/harvests/:id
 const updateHarvest = async (req, res, next) => {
   try {
+    const updates = Object.fromEntries(
+      harvestUpdateFields
+        .filter((field) => Object.prototype.hasOwnProperty.call(req.body, field))
+        .map((field) => [field, req.body[field]])
+    );
+
     const harvest = await Harvest.findOneAndUpdate(
       { _id: req.params.id, farmerId: req.farmer._id },
-      req.body,
+      updates,
       { new: true, runValidators: true }
     );
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });

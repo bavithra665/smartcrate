@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { mockFarmer } from './data/mockData';
+import { getCurrentFarmer } from './api/authApi';
 
 import Landing from './pages/Landing';
 import Login from './pages/Login';
@@ -24,21 +25,43 @@ function ProtectedRoute({ children, isLoggedIn }) {
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [farmer, setFarmer] = useState(mockFarmer);
+  const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
-    const auth = localStorage.getItem('sc_auth');
-    if (auth) {
+    const handleAuthExpired = () => {
+      localStorage.removeItem('sc_auth');
+      setIsLoggedIn(false);
+      setFarmer(mockFarmer);
+    };
+
+    const restoreSession = async () => {
+      const auth = localStorage.getItem('sc_auth');
+      if (!auth) {
+        setAuthLoading(false);
+        return;
+      }
+
       try {
         const parsed = JSON.parse(auth);
-        if (parsed.loggedIn) setIsLoggedIn(true);
+        if (!parsed.token) throw new Error('Invalid stored session');
+        const response = await getCurrentFarmer();
+        setFarmer(response.data);
+        setIsLoggedIn(true);
       } catch {
-        localStorage.removeItem('sc_auth');
+        handleAuthExpired();
+      } finally {
+        setAuthLoading(false);
       }
-    }
+    };
+
+    window.addEventListener('sc-auth-expired', handleAuthExpired);
+    restoreSession();
+    return () => window.removeEventListener('sc-auth-expired', handleAuthExpired);
   }, []);
 
-  const handleLogin = () => {
-    localStorage.setItem('sc_auth', JSON.stringify({ loggedIn: true }));
+  const handleLogin = ({ token, farmer: authenticatedFarmer }) => {
+    localStorage.setItem('sc_auth', JSON.stringify({ token }));
+    setFarmer(authenticatedFarmer);
     setIsLoggedIn(true);
   };
 
@@ -58,6 +81,8 @@ export default function App() {
   };
 
   const dashboardProps = { farmer, onLogout: handleLogout };
+
+  if (authLoading) return null;
 
   return (
     <BrowserRouter>

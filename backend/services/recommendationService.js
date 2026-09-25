@@ -9,10 +9,10 @@ const MarketPrice = require('../models/MarketPrice');
  * Uses the latest prediction + current market prices.
  */
 const generate = async (harvestId, farmerId) => {
-  const harvest = await Harvest.findById(harvestId);
+  const harvest = await Harvest.findOne({ _id: harvestId, farmerId });
   if (!harvest) throw new Error('Harvest not found');
 
-  const prediction = await Prediction.findOne({ harvestId }).sort({ predictedAt: -1 });
+  const prediction = await Prediction.findOne({ harvestId, farmerId }).sort({ predictedAt: -1 });
   if (!prediction) throw new Error('No prediction available. Add sensor data first.');
 
   const markets = await Market.find({ isActive: true });

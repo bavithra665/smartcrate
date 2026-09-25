@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import InputField from '../components/InputField';
 import { cropTypes, maturityStages, storageConditions } from '../data/mockData';
 import { predictShelfLife } from '../utils/predictionUtils';
+import { createHarvest, normalizeHarvest, toHarvestPayload, updateHarvest } from '../api/harvestApi';
 import {
   FaSeedling, FaThermometerHalf, FaTint, FaFlask,
   FaCheckCircle, FaChartLine, FaMicrochip, FaWifi,
@@ -40,15 +41,33 @@ const initialForm = {
   temperature: '', humidity: '', ethyleneLevel: '', vocLevel: '',
 };
 
+const formFromHarvest = (harvest) => ({
+  ...initialForm,
+  cropType: harvest.crop || harvest.cropType || '',
+  variety: harvest.variety || '',
+  quantity: harvest.quantity ?? '',
+  harvestDate: typeof harvest.harvestDate === 'string'
+    ? harvest.harvestDate.split('T')[0]
+    : initialForm.harvestDate,
+  harvestTime: harvest.harvestTime || initialForm.harvestTime,
+  maturityStage: harvest.maturityStage || '',
+  storageCondition: harvest.storageCondition || '',
+});
+
 export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
   const navigate = useNavigate();
-  const [form, setForm] = useState(initialForm);
+  const location = useLocation();
+  const editingHarvest = location.state?.harvest;
+  const [editingId] = useState(editingHarvest?._id || editingHarvest?.id || null);
+  const [form, setForm] = useState(() => editingHarvest ? formFromHarvest(editingHarvest) : initialForm);
   const [errors, setErrors] = useState({});
   const [prediction, setPrediction] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
   const [sensorLoading, setSensorLoading] = useState(false);
-  const [sensorFetched, setSensorFetched] = useState(false);
+  const [sensorFetched, setSensorFetched] = useState(
+    Boolean(editingHarvest?.maturityStage && editingHarvest?.storageCondition)
+  );
   const [sensorError, setSensorError] = useState('');
 
   // Auto-refresh date/time every minute
@@ -100,10 +119,12 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
     if (!form.cropType) e.cropType = 'Crop type is required.';
     if (!form.quantity || isNaN(form.quantity) || +form.quantity <= 0) e.quantity = 'Enter a valid quantity.';
     if (!form.harvestDate) e.harvestDate = 'Harvest date is required.';
-    if (!form.maturityStage) e.maturityStage = 'Fetch sensor data to detect maturity.';
-    if (!form.storageCondition) e.storageCondition = 'Fetch sensor data to detect storage.';
-    if (!form.temperature || isNaN(form.temperature)) e.temperature = 'Fetch sensor data first.';
-    if (!form.humidity || isNaN(form.humidity)) e.humidity = 'Fetch sensor data first.';
+    if (!editingId) {
+      if (!form.maturityStage) e.maturityStage = 'Fetch sensor data to detect maturity.';
+      if (!form.storageCondition) e.storageCondition = 'Fetch sensor data to detect storage.';
+      if (!form.temperature || isNaN(form.temperature)) e.temperature = 'Fetch sensor data first.';
+      if (!form.humidity || isNaN(form.humidity)) e.humidity = 'Fetch sensor data first.';
+    }
     return e;
   };
 
@@ -119,43 +140,55 @@ export default function AddHarvest({ farmer, onAddHarvest, onLogout }) {
     }, 1000);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
-    if (!prediction) { handlePredict(); return; }
+    if (!editingId && !prediction) { handlePredict(); return; }
     setLoading(true);
-    // Future: POST /api/harvest
-    setTimeout(() => {
-      const newHarvest = {
+    setErrors({});
+    try {
+      const response = editingId
+        ? await updateHarvest(editingId, toHarvestPayload(form))
+        : await createHarvest(toHarvestPayload(form));
+      const savedHarvest = normalizeHarvest(response.data);
+      const harvestForUi = {
+        ...savedHarvest,
         ...form,
-        id: `H${Date.now()}`,
-        crop: form.cropType,
-        predictedShelfLife: prediction.shelfLife,
-        remainingShelfLife: prediction.shelfLife,
-        spoilageRisk: prediction.risk,
-        recommendation: prediction.risk === 'High' ? 'Sell Today' : 'Wait for a Better Price',
-        status: 'Active',
+        crop: savedHarvest.crop || form.cropType,
+        predictedShelfLife: prediction?.shelfLife,
+        remainingShelfLife: prediction?.shelfLife,
+        spoilageRisk: prediction?.risk,
+        recommendation: prediction?.risk === 'High' ? 'Sell Today' : 'Wait for a Better Price',
       };
-      onAddHarvest && onAddHarvest(newHarvest);
+      onAddHarvest?.(harvestForUi);
       setSaved(true);
+      if (editingId) {
+        setTimeout(() => navigate('/history'), 900);
+      } else {
+        setTimeout(() => navigate('/prediction', { state: { harvest: harvestForUi, prediction } }), 1200);
+      }
+    } catch (apiError) {
+      const validationError = apiError.response?.data?.errors?.[0]?.msg;
+      setErrors({ api: validationError || apiError.response?.data?.message || 'Unable to save harvest. Please try again.' });
+    } finally {
       setLoading(false);
-      setTimeout(() => navigate('/prediction', { state: { harvest: newHarvest, prediction } }), 1200);
-    }, 800);
+    }
   };
 
   return (
     <DashboardLayout farmer={farmer} pageTitle="Add Harvest" onLogout={onLogout}>
       <div className="page-content">
-        <h1 className="page-title">Add New Harvest</h1>
+        <h1 className="page-title">{editingId ? 'Edit Harvest' : 'Add New Harvest'}</h1>
         <p className="page-subtitle">
           Fill in your crop details. Environmental data and conditions are auto-detected from hardware.
         </p>
 
         {saved && (
           <div className="alert alert-success">
-            <FaCheckCircle /> Harvest saved successfully! Redirecting to prediction...
+            <FaCheckCircle /> {editingId ? 'Harvest updated successfully! Redirecting...' : 'Harvest saved successfully! Redirecting to prediction...'}
           </div>
         )}
+        {errors.api && <div className="alert alert-error">{errors.api}</div>}
 
         <div className="add-harvest-grid">
 

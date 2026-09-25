@@ -1,13 +1,13 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import DashboardLayout from '../layouts/DashboardLayout';
 import DashboardCard from '../components/DashboardCard';
 import HarvestCard from '../components/HarvestCard';
+import { getHarvests, normalizeHarvest } from '../api/harvestApi';
 import {
   FaSeedling, FaChartLine, FaStore, FaHistory,
   FaExclamationTriangle, FaCheckCircle, FaLeaf, FaClock
 } from 'react-icons/fa';
-import { mockHarvests } from '../data/mockData';
 import './Dashboard.css';
 
 const quickActions = [
@@ -19,7 +19,28 @@ const quickActions = [
 
 export default function Dashboard({ farmer, onLogout }) {
   const navigate = useNavigate();
-  const activeHarvests = mockHarvests.filter(h => h.status === 'Active');
+  const [activeHarvests, setActiveHarvests] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadHarvests = async () => {
+      try {
+        const response = await getHarvests('Active');
+        if (mounted) setActiveHarvests(response.data.map(normalizeHarvest));
+      } catch (apiError) {
+        if (mounted) setError(apiError.response?.data?.message || 'Unable to load your harvests.');
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadHarvests();
+    return () => { mounted = false; };
+  }, []);
+
   const highRisk = activeHarvests.filter(h => h.spoilageRisk === 'High').length;
   const medRisk = activeHarvests.filter(h => h.spoilageRisk === 'Medium').length;
 
@@ -94,7 +115,10 @@ export default function Dashboard({ farmer, onLogout }) {
             View All
           </button>
         </div>
-        {activeHarvests.length === 0 ? (
+        {error && <div className="alert alert-error">{error}</div>}
+        {loading ? (
+          <div className="empty-state"><span className="spinner" /><p>Loading active harvests...</p></div>
+        ) : activeHarvests.length === 0 ? (
           <div className="empty-state">
             <FaSeedling />
             <p>No active harvest batches. Add your first harvest to get started.</p>

@@ -3,9 +3,31 @@ const FarmerFeedback = require('../models/FarmerFeedback');
 // POST /api/feedback
 const submitFeedback = async (req, res, next) => {
   try {
+    const {
+      harvestId,
+      predictionId,
+      recommendationId,
+      farmerAction,
+      actualSellingPrice,
+      actualMarket,
+      actualSpoilageOutcome,
+      recommendationHelpful,
+      predictionAccurate,
+      comments,
+    } = req.body;
+
     const feedback = await FarmerFeedback.create({
       farmerId: req.farmer._id,
-      ...req.body,
+      harvestId,
+      predictionId,
+      recommendationId,
+      farmerAction,
+      actualSellingPrice,
+      actualMarket,
+      actualSpoilageOutcome,
+      recommendationHelpful,
+      predictionAccurate,
+      comments,
     });
     res.status(201).json(feedback);
   } catch (err) {

@@ -26,14 +26,16 @@ const generateOTP = async (mobile) => {
   return otp;
 };
 
-const verifyOTP = async (mobile, otp) => {
+const verifyOTP = async (mobile, otp, { consume = true } = {}) => {
   const record = await OTP.findOne({ mobile, used: false });
   if (!record) return { valid: false, message: 'OTP not found or already used' };
   if (new Date() > record.expiresAt) return { valid: false, message: 'OTP has expired' };
   if (record.otp !== otp) return { valid: false, message: 'Invalid OTP' };
 
-  record.used = true;
-  await record.save();
+  if (consume) {
+    record.used = true;
+    await record.save();
+  }
   return { valid: true };
 };
 

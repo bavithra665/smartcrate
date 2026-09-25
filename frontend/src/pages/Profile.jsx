@@ -1,27 +1,82 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import InputField from '../components/InputField';
-import { mockFarmer } from '../data/mockData';
+import { getFarmerProfile, updateFarmerProfile } from '../api/farmerApi';
 import { FaUser, FaEdit, FaCheckCircle } from 'react-icons/fa';
 
 const languages = ['Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Hindi', 'English'];
 
 export default function Profile({ farmer, onUpdateFarmer, onLogout }) {
   const [editing, setEditing] = useState(false);
-  const [form, setForm] = useState(farmer || mockFarmer);
+  const [form, setForm] = useState(farmer || {});
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const onUpdateFarmerRef = useRef(onUpdateFarmer);
+
+  const getApiError = (apiError, fallback) => {
+    const validationError = apiError.response?.data?.errors?.[0]?.msg;
+    return validationError || apiError.response?.data?.message || fallback;
+  };
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadProfile = async () => {
+      setError('');
+      try {
+        const response = await getFarmerProfile();
+        if (mounted) {
+          setForm(response.data);
+          onUpdateFarmerRef.current?.(response.data);
+        }
+      } catch (apiError) {
+        if (mounted) setError(getApiError(apiError, 'Unable to load your profile. Please try again.'));
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadProfile();
+    return () => { mounted = false; };
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setForm(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = () => {
-    // Future: PUT /api/farmer/profile
-    onUpdateFarmer && onUpdateFarmer(form);
-    setSaved(true);
+  const handleSave = async () => {
+    setError('');
+    if (!form.name?.trim()) {
+      setError('Full name is required.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const response = await updateFarmerProfile({
+        name: form.name.trim(),
+        location: form.location || '',
+        preferredLanguage: form.preferredLanguage || '',
+      });
+      setForm(response.data);
+      onUpdateFarmerRef.current?.(response.data);
+      setSaved(true);
+      setEditing(false);
+      setTimeout(() => setSaved(false), 3000);
+    } catch (apiError) {
+      setError(getApiError(apiError, 'Unable to update your profile. Please try again.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = () => {
     setEditing(false);
-    setTimeout(() => setSaved(false), 3000);
+    setError('');
+    setForm(farmer || form);
   };
 
   return (
@@ -35,6 +90,8 @@ export default function Profile({ farmer, onUpdateFarmer, onLogout }) {
             <FaCheckCircle /> Profile updated successfully!
           </div>
         )}
+        {error && <div className="alert alert-error">{error}</div>}
+        {loading && <div className="alert alert-info">Loading your profile...</div>}
 
         <div style={{ display: 'grid', gridTemplateColumns: '280px 1fr', gap: 24 }}>
           {/* Avatar card */}
@@ -75,11 +132,11 @@ export default function Profile({ farmer, onUpdateFarmer, onLogout }) {
                 </button>
               ) : (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="btn btn-outline btn-sm" onClick={() => { setEditing(false); setForm(farmer || mockFarmer); }}>
+                  <button className="btn btn-outline btn-sm" onClick={handleCancel} disabled={saving}>
                     Cancel
                   </button>
-                  <button className="btn btn-primary btn-sm" onClick={handleSave}>
-                    <FaCheckCircle /> Save Changes
+                  <button className="btn btn-primary btn-sm" onClick={handleSave} disabled={saving}>
+                    {saving ? <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} /> : <FaCheckCircle />} {saving ? 'Saving...' : 'Save Changes'}
                   </button>
                 </div>
               )}

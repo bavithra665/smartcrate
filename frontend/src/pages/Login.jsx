@@ -1,45 +1,84 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaLeaf, FaMobileAlt, FaShieldAlt, FaArrowLeft } from 'react-icons/fa';
+import { registerFarmer, sendOtp, verifyOtp } from '../api/authApi';
 import './Login.css';
-
-// Future: Replace with POST /api/auth/send-otp and POST /api/auth/verify-otp
-const MOCK_OTP = '1234';
 
 export default function Login({ onLogin }) {
   const navigate = useNavigate();
   const [mobile, setMobile] = useState('');
   const [otp, setOtp] = useState('');
   const [otpSent, setOtpSent] = useState(false);
+  const [registrationRequired, setRegistrationRequired] = useState(false);
+  const [registration, setRegistration] = useState({ name: '', location: '', preferredLanguage: 'English' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const handleSendOtp = () => {
+  const getApiError = (apiError, fallback) => apiError.response?.data?.message || fallback;
+
+  const handleSendOtp = async () => {
     setError('');
+    setSuccess('');
     if (!/^\d{10}$/.test(mobile)) {
       setError('Please enter a valid 10-digit mobile number.');
       return;
     }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
+    try {
+      const response = await sendOtp(mobile);
       setOtpSent(true);
-      setSuccess(`OTP sent to +91 ${mobile}. (Demo OTP: ${MOCK_OTP})`);
-    }, 1200);
+      setSuccess(response.data.message || `OTP sent to +91 ${mobile}.`);
+    } catch (apiError) {
+      setError(getApiError(apiError, 'Unable to send OTP. Please try again.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleVerifyOtp = () => {
+  const handleVerifyOtp = async () => {
     setError('');
     if (!otp) { setError('Please enter the OTP.'); return; }
-    if (otp !== MOCK_OTP) { setError('Invalid OTP. Please try again. (Demo OTP: 1234)'); return; }
+    if (!/^\d{4,6}$/.test(otp)) { setError('Please enter a valid OTP.'); return; }
     setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      localStorage.setItem('sc_auth', JSON.stringify({ mobile, loggedIn: true }));
-      onLogin && onLogin();
+    try {
+      const response = await verifyOtp(mobile, otp);
+      onLogin?.(response.data);
       navigate('/dashboard');
-    }, 1000);
+    } catch (apiError) {
+      if (apiError.response?.status === 404 && apiError.response.data?.needsRegistration) {
+        setRegistrationRequired(true);
+        setSuccess('Your mobile number is verified. Complete your profile to continue.');
+      } else {
+        setError(getApiError(apiError, 'Invalid OTP or unable to sign in.'));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRegistrationChange = (event) => {
+    const { name, value } = event.target;
+    setRegistration((previous) => ({ ...previous, [name]: value }));
+  };
+
+  const handleRegister = async () => {
+    setError('');
+    if (!registration.name.trim()) {
+      setError('Please enter your name.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const response = await registerFarmer({ mobile, otp, ...registration });
+      onLogin?.(response.data);
+      navigate('/dashboard');
+    } catch (apiError) {
+      setError(getApiError(apiError, 'Unable to complete registration. Please try again.'));
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -73,7 +112,7 @@ export default function Login({ onLogin }) {
           <div className="login-card-header">
             <div className="login-card-icon"><FaMobileAlt /></div>
             <h2>Farmer Login</h2>
-            <p>Enter your mobile number to receive an OTP</p>
+            <p>{registrationRequired ? 'Complete your farmer profile' : 'Enter your mobile number to receive an OTP'}</p>
           </div>
 
           {success && (
@@ -99,7 +138,56 @@ export default function Login({ onLogin }) {
             </div>
           </div>
 
-          {!otpSent ? (
+          {registrationRequired ? (
+            <>
+              <div className="form-group">
+                <label className="form-label">Full Name *</label>
+                <input
+                  type="text"
+                  name="name"
+                  className="form-input"
+                  placeholder="Enter your full name"
+                  value={registration.name}
+                  onChange={handleRegistrationChange}
+                  disabled={loading}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Location</label>
+                <input
+                  type="text"
+                  name="location"
+                  className="form-input"
+                  placeholder="e.g. Erode, Tamil Nadu"
+                  value={registration.location}
+                  onChange={handleRegistrationChange}
+                  disabled={loading}
+                />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Preferred Language</label>
+                <select
+                  name="preferredLanguage"
+                  className="form-input"
+                  value={registration.preferredLanguage}
+                  onChange={handleRegistrationChange}
+                  disabled={loading}
+                >
+                  {['Tamil', 'Telugu', 'Kannada', 'Malayalam', 'Hindi', 'English'].map((language) => (
+                    <option key={language} value={language}>{language}</option>
+                  ))}
+                </select>
+              </div>
+              <button
+                className="btn btn-primary"
+                style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
+                onClick={handleRegister}
+                disabled={loading}
+              >
+                {loading ? <span className="spinner" style={{ width: 20, height: 20, borderWidth: 2 }} /> : 'Create Account'}
+              </button>
+            </>
+          ) : !otpSent ? (
             <button
               className="btn btn-primary"
               style={{ width: '100%', justifyContent: 'center', padding: '12px' }}
@@ -132,7 +220,7 @@ export default function Login({ onLogin }) {
               <button
                 className="btn btn-outline"
                 style={{ width: '100%', justifyContent: 'center' }}
-                onClick={() => { setOtpSent(false); setOtp(''); setSuccess(''); setError(''); }}
+                onClick={() => { setOtpSent(false); setRegistrationRequired(false); setOtp(''); setSuccess(''); setError(''); }}
               >
                 Change Mobile Number
               </button>
@@ -140,8 +228,8 @@ export default function Login({ onLogin }) {
           )}
 
           <div className="login-demo-note">
-            <span className="demo-badge">Demo Mode</span>
-            Use any 10-digit number and OTP: <strong>1234</strong>
+            <span className="demo-badge">Secure Login</span>
+            We will send a one-time password to your mobile number.
           </div>
         </div>
       </div>
