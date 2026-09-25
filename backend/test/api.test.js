@@ -320,6 +320,7 @@ describe('sensor and feedback validation', () => {
 
   test('always uses the authenticated farmer id for feedback', async () => {
     FarmerFeedback.create.mockResolvedValue({ _id: 'feedback-1', farmerId });
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, quantity: 50 });
 
     const response = await request(app)
       .post('/api/feedback')
@@ -337,6 +338,85 @@ describe('sensor and feedback validation', () => {
       actualSellingPrice: 20,
     }));
     expect(FarmerFeedback.create.mock.calls[0][0].farmerId).not.toBe('507f1f77bcf86cd799439099');
+  });
+
+  test('accepts a structured outcome report with actual values and timestamps', async () => {
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, quantity: 50 });
+    Prediction.findOne.mockResolvedValue({ _id: '507f1f77bcf86cd799439013', farmerId, harvestId });
+    Recommendation.findOne.mockResolvedValue({ _id: '507f1f77bcf86cd799439014', farmerId, harvestId });
+    FarmerFeedback.create.mockResolvedValue({ _id: 'feedback-2', farmerId, harvestId });
+
+    const response = await request(app)
+      .post('/api/feedback')
+      .set(auth())
+      .send({
+        harvestId,
+        predictionId: '507f1f77bcf86cd799439013',
+        recommendationId: '507f1f77bcf86cd799439014',
+        actualSaleStatus: 'Sold',
+        actualSellingPrice: 28,
+        soldQuantity: 42,
+        spoiledQuantity: 5,
+        actualSpoilageOutcome: 'Partial Spoilage',
+        recommendationHelpful: true,
+        recommendationFollowed: true,
+        predictionAccurate: true,
+        actualQuality: 'Good',
+        observedAt: '2026-09-24T10:30:00.000Z',
+        comments: 'Price held steady and the market decision was useful.',
+      });
+
+    expect(response.status).toBe(201);
+    expect(FarmerFeedback.create).toHaveBeenCalledWith(expect.objectContaining({
+      farmerId,
+      harvestId,
+      actualSaleStatus: 'Sold',
+      actualSellingPrice: 28,
+      soldQuantity: 42,
+      spoiledQuantity: 5,
+      recommendationFollowed: true,
+      observedAt: expect.any(Date),
+    }));
+  });
+
+  test('rejects impossible sold and spoiled quantity totals for a harvest', async () => {
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, quantity: 50 });
+
+    const response = await request(app)
+      .post('/api/feedback')
+      .set(auth())
+      .send({
+        harvestId,
+        soldQuantity: 36,
+        spoiledQuantity: 25,
+      });
+
+    expect(response.status).toBe(400);
+    expect(FarmerFeedback.create).not.toHaveBeenCalled();
+  });
+
+  test('rejects invalid feedback object ids and future outcome timestamps', async () => {
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, quantity: 50 });
+
+    const invalidIds = await request(app)
+      .post('/api/feedback')
+      .set(auth())
+      .send({
+        harvestId,
+        predictionId: 'not-a-valid-id',
+        recommendationId: '507f1f77bcf86cd799439014',
+      });
+
+    const futureTime = await request(app)
+      .post('/api/feedback')
+      .set(auth())
+      .send({
+        harvestId,
+        observedAt: '2999-01-01T00:00:00.000Z',
+      });
+
+    expect(invalidIds.status).toBe(400);
+    expect(futureTime.status).toBe(400);
   });
 
   test('rejects unsupported market price units for an admin request', async () => {

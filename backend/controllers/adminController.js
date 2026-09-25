@@ -72,4 +72,28 @@ const getAllHarvests = async (req, res, next) => {
   }
 };
 
-module.exports = { getStats, getAllFarmers, getAllHarvests };
+const getFeedbackSummary = async (req, res, next) => {
+  try {
+    const [totalFeedback, statusBreakdown, averageSellingPrice] = await Promise.all([
+      FarmerFeedback.countDocuments(),
+      FarmerFeedback.aggregate([
+        { $group: { _id: '$actualSaleStatus', count: { $sum: 1 } } },
+        { $sort: { count: -1 } },
+      ]),
+      FarmerFeedback.aggregate([
+        { $match: { actualSellingPrice: { $ne: null, $exists: true } } },
+        { $group: { _id: null, avgPrice: { $avg: '$actualSellingPrice' } } },
+      ]),
+    ]);
+
+    res.json({
+      totalFeedback,
+      statusBreakdown: statusBreakdown.map((item) => ({ status: item._id || 'Not Reported', count: item.count })),
+      averageSellingPrice: averageSellingPrice[0]?.avgPrice ?? null,
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+module.exports = { getStats, getAllFarmers, getAllHarvests, getFeedbackSummary };

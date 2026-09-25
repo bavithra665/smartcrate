@@ -122,11 +122,17 @@ const feedbackValidators = [
   body('predictionId').optional({ values: 'falsy' }).isMongoId(),
   body('recommendationId').optional({ values: 'falsy' }).isMongoId(),
   body('farmerAction').optional({ values: 'falsy' }).trim().isLength({ max: 100 }),
+  body('actualSaleStatus').optional().isIn(['Sold', 'Not Sold', 'Spoiled', 'Stored', 'Discarded', 'Not Reported']),
   body('actualSellingPrice').optional({ values: 'falsy' }).isFloat({ min: 0 }),
   body('actualMarket').optional({ values: 'falsy' }).trim().isLength({ max: 150 }),
+  body('soldQuantity').optional({ values: 'falsy' }).isFloat({ min: 0 }),
+  body('spoiledQuantity').optional({ values: 'falsy' }).isFloat({ min: 0 }),
   body('actualSpoilageOutcome').optional().isIn(['No Spoilage', 'Partial Spoilage', 'Full Spoilage', 'Not Reported']),
+  body('actualQuality').optional().isIn(['Excellent', 'Good', 'Fair', 'Poor', 'Not Reported']),
   body('recommendationHelpful').optional().isBoolean(),
+  body('recommendationFollowed').optional().isBoolean(),
   body('predictionAccurate').optional().isBoolean(),
+  body('observedAt').optional().isISO8601({ strict: true }).withMessage('observedAt must be an ISO-8601 timestamp'),
   body('comments').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
 ];
 
