@@ -91,16 +91,20 @@ const marketValidators = [
 ];
 
 const marketPriceValidators = [
-  body('marketId').isMongoId().withMessage('marketId must be a valid MongoDB id'),
+  body('marketId').optional({ values: 'falsy' }).isMongoId().withMessage('marketId must be a valid MongoDB id'),
   body('crop').trim().notEmpty().withMessage('crop is required').isLength({ max: 100 }),
+  body('price').optional({ values: 'falsy' }).isFloat({ min: 0 }).withMessage('price must be a non-negative number'),
   body('variety').optional({ values: 'falsy' }).trim().isLength({ max: 100 }),
-  body('date').isISO8601({ strict: true }).withMessage('date must be an ISO date'),
+  body('date').optional({ values: 'falsy' }).isISO8601({ strict: true }).withMessage('date must be an ISO date'),
+  body('observedAt').optional({ values: 'falsy' }).isISO8601({ strict: true }).withMessage('observedAt must be an ISO-8601 timestamp'),
   body('minPrice').optional({ values: 'falsy' }).isFloat({ min: 0 }),
   body('maxPrice').optional({ values: 'falsy' }).isFloat({ min: 0 }),
   body('modalPrice').optional({ values: 'falsy' }).isFloat({ min: 0 }),
   body('arrivalQuantity').optional({ values: 'falsy' }).isFloat({ min: 0 }),
   body('unit').isIn(['kg', 'quintal', 'tonne']).withMessage('unit must be kg, quintal, or tonne'),
-  body('source').optional().isIn(['dataset', 'api', 'manual']),
+  body('currency').optional({ values: 'falsy' }).trim().isLength({ min: 2, max: 10 }).withMessage('currency must be a valid ISO-style currency code'),
+  body('source').optional().isIn(['dataset', 'api', 'manual', 'mock', 'development']),
+  body('metadata').optional({ values: 'falsy' }).isObject().withMessage('metadata must be an object when provided'),
 ];
 
 const marketPriceQueryValidators = [

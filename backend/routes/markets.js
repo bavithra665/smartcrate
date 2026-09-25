@@ -2,10 +2,9 @@ const express = require('express');
 const router = express.Router();
 const {
   getMarkets, getMarketPrices, getLatestPricesForCrop,
-  createMarket, addMarketPrice, compareMarkets,
+  createMarket, addMarketPrice, compareMarkets, syncMarkets,
 } = require('../controllers/marketController');
-const { protect } = require('../middleware/auth');
-const { adminOnly } = require('../middleware/auth');
+const { protect, adminOnly } = require('../middleware/auth');
 const { validate } = require('../middleware/validate');
 const {
   marketIdValidators,
@@ -22,5 +21,6 @@ router.get('/:id/prices', protect, marketIdValidators, validate, getMarketPrices
 // Admin-only
 router.post('/', protect, adminOnly, marketValidators, validate, createMarket);
 router.post('/prices', protect, adminOnly, marketPriceValidators, validate, addMarketPrice);
+router.post('/sync', protect, adminOnly, syncMarkets);
 
 module.exports = router;

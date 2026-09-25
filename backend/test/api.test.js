@@ -80,6 +80,7 @@ const Recommendation = require('../models/Recommendation');
 const SensorReading = require('../models/SensorReading');
 const Device = require('../models/Device');
 const FarmerFeedback = require('../models/FarmerFeedback');
+const Market = require('../models/Market');
 const MarketPrice = require('../models/MarketPrice');
 
 const farmerId = '507f1f77bcf86cd799439011';
@@ -355,6 +356,143 @@ describe('sensor and feedback validation', () => {
 
     expect(response.status).toBe(400);
     expect(MarketPrice.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('market intelligence layer', () => {
+  test('returns active markets for the authenticated farmer', async () => {
+    Market.find.mockReturnValue({
+      sort: jest.fn().mockResolvedValue([
+        {
+          _id: '507f1f77bcf86cd799439021',
+          name: 'Erode APMC Market',
+          location: 'Erode, Tamil Nadu',
+          district: 'Erode',
+          state: 'Tamil Nadu',
+          isActive: true,
+          distance: 12,
+          travelTime: '30 mins',
+          transportCost: 150,
+        },
+      ]),
+    });
+
+    const response = await request(app)
+      .get('/api/markets')
+      .set(auth());
+
+    expect(response.status).toBe(200);
+    expect(response.body[0]).toEqual(expect.objectContaining({
+      name: 'Erode APMC Market',
+      location: 'Erode, Tamil Nadu',
+      distance: 12,
+    }));
+  });
+
+  test('returns the latest crop price with normalized currency and timestamp fields', async () => {
+    const latest = [
+      {
+        _id: '507f1f77bcf86cd799439021',
+        marketId: { _id: '507f1f77bcf86cd799439021', name: 'Erode APMC Market' },
+        crop: 'Tomato',
+        price: 15,
+        unit: 'kg',
+        currency: 'INR',
+        observedAt: '2026-09-25T09:00:00.000Z',
+        source: 'mock',
+        toObject: () => ({
+          _id: '507f1f77bcf86cd799439021',
+          marketId: { _id: '507f1f77bcf86cd799439021', name: 'Erode APMC Market' },
+          crop: 'Tomato',
+          price: 15,
+          unit: 'kg',
+          currency: 'INR',
+          observedAt: '2026-09-25T09:00:00.000Z',
+          source: 'mock',
+        }),
+      },
+    ];
+    MarketPrice.find.mockReturnValue({ sort: jest.fn().mockResolvedValue(latest) });
+    MarketPrice.populate.mockResolvedValue(latest);
+
+    const response = await request(app)
+      .get('/api/markets/prices/latest?crop=Tomato')
+      .set(auth());
+
+    expect(response.status).toBe(200);
+    expect(response.body[0]).toEqual(expect.objectContaining({
+      crop: 'Tomato',
+      price: 15,
+      unit: 'kg',
+      currency: 'INR',
+      observedAt: '2026-09-25T09:00:00.000Z',
+    }));
+  });
+
+  test('returns comparison data with price, distance, and travel time for each market', async () => {
+    const marketList = [
+      {
+        _id: '507f1f77bcf86cd799439021',
+        name: 'Erode APMC Market',
+        location: 'Erode, Tamil Nadu',
+        district: 'Erode',
+        state: 'Tamil Nadu',
+        isActive: true,
+        distance: 12,
+        travelTime: '30 mins',
+        transportCost: 150,
+      },
+      {
+        _id: '507f1f77bcf86cd799439022',
+        name: 'Salem Market',
+        location: 'Salem, Tamil Nadu',
+        district: 'Salem',
+        state: 'Tamil Nadu',
+        isActive: true,
+        distance: 60,
+        travelTime: '1.5 hrs',
+        transportCost: 400,
+      },
+    ];
+
+    Market.find.mockReturnValue({
+      sort: jest.fn().mockResolvedValue(marketList),
+    });
+    MarketPrice.findOne.mockImplementation(({ marketId, crop }) => ({
+      sort: jest.fn().mockResolvedValue({
+        marketId,
+        crop,
+        price: marketId === '507f1f77bcf86cd799439021' ? 15 : 14,
+        unit: 'kg',
+        currency: 'INR',
+        observedAt: '2026-09-25T09:00:00.000Z',
+        source: 'mock',
+      }),
+    }));
+
+    const response = await request(app)
+      .get('/api/markets/compare?crop=Tomato')
+      .set(auth());
+
+    expect(response.status).toBe(200);
+    expect(response.body[0]).toEqual(expect.objectContaining({
+      market: 'Erode APMC Market',
+      price: 15,
+      unit: 'kg',
+      currency: 'INR',
+      observedAt: '2026-09-25T09:00:00.000Z',
+      distance: 12,
+      travelTime: '30 mins',
+    }));
+  });
+
+  test('requires admin access to trigger a market provider sync', async () => {
+    const response = await request(app)
+      .post('/api/markets/sync')
+      .set(auth())
+      .send({});
+
+    expect(response.status).toBe(403);
   });
 });
 

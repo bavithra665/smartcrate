@@ -1,20 +1,23 @@
 const mongoose = require('mongoose');
 
-// Stores historical and current market prices per crop per market per date.
-// Sourced from datasets (e.g. Agmarknet) or manual entry.
 const marketPriceSchema = new mongoose.Schema({
   marketId: { type: mongoose.Schema.Types.ObjectId, ref: 'Market', required: true },
-  crop: { type: String, required: true },
-  variety: { type: String },
-  date: { type: Date, required: true },
-  minPrice: { type: Number },   // ₹ per quintal or kg
-  maxPrice: { type: Number },
-  modalPrice: { type: Number }, // most common traded price
-  arrivalQuantity: { type: Number }, // tonnes
-  unit: { type: String, default: 'kg' },
-  source: { type: String, default: 'manual' }, // 'dataset', 'api', 'manual'
+  crop: { type: String, required: true, trim: true },
+  price: { type: Number, required: true, min: 0 },
+  unit: { type: String, required: true, enum: ['kg', 'quintal', 'tonne'], default: 'kg' },
+  currency: { type: String, required: true, default: 'INR', trim: true },
+  observedAt: { type: Date, required: true, default: Date.now },
+  source: { type: String, default: 'manual', trim: true },
+  variety: { type: String, trim: true },
+  date: { type: Date },
+  minPrice: { type: Number, min: 0 },
+  maxPrice: { type: Number, min: 0 },
+  modalPrice: { type: Number, min: 0 },
+  arrivalQuantity: { type: Number, min: 0 },
+  metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
 }, { timestamps: true });
 
-marketPriceSchema.index({ marketId: 1, crop: 1, date: -1 });
+marketPriceSchema.index({ marketId: 1, crop: 1, observedAt: -1 });
+marketPriceSchema.index({ crop: 1, observedAt: -1 });
 
 module.exports = mongoose.model('MarketPrice', marketPriceSchema);
