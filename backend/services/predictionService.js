@@ -41,6 +41,22 @@ const buildMlPayload = (harvest, sensorReading, observationTimestamp) => ({
   co2_ppm: sensorReading.co2,
 });
 
+const buildShelfLifePayload = (harvest, sensorReading, observationTimestamp) => Object.fromEntries(
+  Object.entries({
+    crop: harvest.crop,
+    variety: harvest.variety,
+    maturity_stage: harvest.maturityStage,
+    storage_condition: harvest.storageCondition,
+    hours_since_harvest: calculateHoursSinceHarvest(harvest, observationTimestamp || sensorReading.timestamp || new Date()),
+    temperature: sensorReading.temperature,
+    humidity: sensorReading.humidity,
+    ethylene: sensorReading.ethylene,
+    voc_index: sensorReading.voc,
+    co2: sensorReading.co2,
+    current_weight: sensorReading.currentWeight,
+  }).filter(([, value]) => value !== undefined && value !== null)
+);
+
 const validateMlResponse = (data) => {
   if (!data || !SPOILAGE_RISKS.includes(data.spoilage_risk)) throw new Error('ML service returned an invalid spoilage_risk');
   if (!data.model_version || !data.model_source || !data.prediction_timestamp) throw new Error('ML service returned incomplete model metadata');
@@ -59,6 +75,16 @@ const validateMlResponse = (data) => {
   return { ...data, predictionTimestamp, probabilities };
 };
 
+const validateShelfLifeResponse = (data) => {
+  if (!data || typeof data.remaining_shelf_life_days !== 'number' || !Number.isFinite(data.remaining_shelf_life_days) || data.remaining_shelf_life_days < 0) {
+    throw new Error('ML service returned an invalid remaining_shelf_life_days');
+  }
+  if (!data.model_version || !data.model_source || !data.prediction_timestamp) throw new Error('ML service returned incomplete shelf-life model metadata');
+  const predictionTimestamp = new Date(data.prediction_timestamp);
+  if (Number.isNaN(predictionTimestamp.getTime())) throw new Error('ML service returned an invalid shelf-life prediction_timestamp');
+  return { ...data, predictionTimestamp };
+};
+
 const isClientValidationError = (error) => error.response && error.response.status >= 400 && error.response.status < 500;
 
 /**
@@ -73,7 +99,6 @@ const runPrediction = async (harvest, sensorReading, options = {}) => {
   let source = 'ml_model';
   let modelVersion;
   let spoilageRiskConfidence = null;
-  let shelfLifeResult = null;
 
   try {
     const response = await axios.post(`${ML_SERVICE_URL}/predict/spoilage-risk`, features, { timeout: ML_SERVICE_TIMEOUT_MS });
@@ -86,16 +111,35 @@ const runPrediction = async (harvest, sensorReading, options = {}) => {
     }
     console.warn('[PredictionService] ML service unavailable; using rule-based fallback:', error.message);
     source = 'rule_based';
-    shelfLifeResult = ruleBasedShelfLife(features);
     predictionData = ruleBasedSpoilageRisk(features);
     modelVersion = 'rule_based_v1';
+  }
+
+  let shelfLifePrediction = null;
+  try {
+    const shelfLifeResponse = await axios.post(
+      `${ML_SERVICE_URL}/predict/shelf-life`,
+      buildShelfLifePayload(harvest, sensorReading, observationTimestamp),
+      { timeout: ML_SERVICE_TIMEOUT_MS }
+    );
+    shelfLifePrediction = validateShelfLifeResponse(shelfLifeResponse.data);
+  } catch (error) {
+    if (error.response?.status !== 503) {
+      console.warn('[PredictionService] Shelf-life prediction unavailable:', error.message);
+    }
   }
 
   const prediction = await Prediction.create({
     harvestId: harvest._id,
     farmerId: harvest.farmerId,
     sensorReadingId: sensorReading._id,
-    ...(shelfLifeResult && { remainingShelfLife: shelfLifeResult.remaining_shelf_life, shelfLifeUnit: 'days', shelfLifeConfidence: shelfLifeResult.confidence || null }),
+    ...(shelfLifePrediction && {
+      remainingShelfLife: shelfLifePrediction.remaining_shelf_life_days,
+      shelfLifeUnit: 'days',
+      shelfLifeModelVersion: shelfLifePrediction.model_version,
+      shelfLifeModelSource: shelfLifePrediction.model_source,
+      shelfLifePredictedAt: shelfLifePrediction.predictionTimestamp,
+    }),
     spoilageRisk: predictionData.spoilage_risk || predictionData.risk,
     spoilageRiskConfidence: spoilageRiskConfidence || predictionData.confidence || null,
     featuresUsed: features,
@@ -135,4 +179,4 @@ const ruleBasedSpoilageRisk = (f) => {
   return { risk, confidence: null };
 };
 
-module.exports = { runPrediction, buildMlPayload, calculateHoursSinceHarvest, InvalidHarvestTimestampError, MlValidationError };
+module.exports = { runPrediction, buildMlPayload, buildShelfLifePayload, validateShelfLifeResponse, calculateHoursSinceHarvest, InvalidHarvestTimestampError, MlValidationError };

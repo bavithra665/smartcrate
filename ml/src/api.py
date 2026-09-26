@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import FastAPI, HTTPException, status
 
 from .inference import ModelUnavailableError, SpoilageRiskInference
-from .schemas import HealthResponse, SpoilageRiskRequest, SpoilageRiskResponse
+from .schemas import HealthResponse, ShelfLifeRequest, SpoilageRiskRequest, SpoilageRiskResponse
 
 MODEL_VERSION = "spoilage_risk_baseline"
 MODEL_SOURCE = "exploratory_baseline"
@@ -42,3 +42,17 @@ def predict_spoilage_risk(request: SpoilageRiskRequest) -> SpoilageRiskResponse:
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=f"Spoilage-risk model unavailable: {error}",
         ) from error
+
+
+@app.post("/predict/shelf-life")
+def predict_shelf_life(request: ShelfLifeRequest) -> None:
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "code": "SHELF_LIFE_MODEL_NOT_READY",
+            "message": (
+                "Shelf-life regression training is not yet justified because the dataset "
+                "does not meet the required readiness threshold. More longitudinal data is required."
+            ),
+        },
+    )

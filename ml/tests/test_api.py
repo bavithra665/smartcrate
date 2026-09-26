@@ -19,6 +19,20 @@ VALID_REQUEST = {
     "co2_ppm": 420,
 }
 
+VALID_SHELF_LIFE_REQUEST = {
+    "crop": "Tomato",
+    "variety": "Roma",
+    "maturity_stage": "Fully Ripe",
+    "storage_condition": "Cold Room",
+    "hours_since_harvest": 24,
+    "temperature": 25.5,
+    "humidity": 60,
+    "ethylene": 1.2,
+    "voc_index": 0.8,
+    "co2": 420,
+    "current_weight": 4.5,
+}
+
 
 def test_health_reports_loaded_exploratory_model():
     response = client.get("/health")
@@ -53,10 +67,24 @@ def test_malformed_request_is_rejected():
     assert response.status_code == 422
 
 
-def test_shelf_life_endpoint_is_not_available():
-    response = client.post("/predict/shelf-life", json=VALID_REQUEST)
+def test_shelf_life_endpoint_reports_model_not_ready():
+    response = client.post("/predict/shelf-life", json=VALID_SHELF_LIFE_REQUEST)
 
-    assert response.status_code == 404
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "SHELF_LIFE_MODEL_NOT_READY"
+    assert "More longitudinal data is required" in response.json()["detail"]["message"]
+    assert "remaining_shelf_life_days" not in response.json()
+
+
+def test_shelf_life_request_rejects_endpoint_leakage_fields():
+    invalid_request = {
+        **VALID_SHELF_LIFE_REQUEST,
+        "end_of_saleable_life_timestamp": "2026-09-30T00:00:00Z",
+    }
+
+    response = client.post("/predict/shelf-life", json=invalid_request)
+
+    assert response.status_code == 422
 
 
 def test_missing_model_degrades_health_and_returns_service_unavailable(monkeypatch):

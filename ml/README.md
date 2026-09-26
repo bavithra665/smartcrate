@@ -80,4 +80,4 @@ The response contains `spoilage_risk`, model probabilities when supported by the
 
 FastAPI OpenAPI documentation is available at `/docs` and `/redoc` when the service is running.
 
-There is intentionally no `/predict/shelf-life` endpoint. Phase 4A found no defensible remaining-shelf-life target in the current datasets. Real longitudinal batch data and documented saleability endpoints are required before building that model.
+`POST /predict/shelf-life` validates prediction-time fields but returns HTTP 503 with `SHELF_LIFE_MODEL_NOT_READY` while the longitudinal-data threshold is unmet. It never returns a shelf-life number without a trained artifact. See [Phase 11 shelf-life readiness](../docs/PHASE11_SHELF_LIFE_MODEL_READINESS.md) for the current gate result and data contract.

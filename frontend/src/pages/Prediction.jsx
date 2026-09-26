@@ -49,6 +49,8 @@ export default function Prediction({ farmer, onLogout }) {
   }, [harvestId]);
 
   const risk = prediction?.spoilageRisk;
+  const shelfLifeAvailable = Number.isFinite(prediction?.remainingShelfLife)
+    && Boolean(prediction?.shelfLifeModelVersion && prediction?.shelfLifeModelSource);
   const circleColor = risk === 'High' ? 'var(--risk-high)' :
     risk === 'Medium' ? 'var(--risk-medium)' : 'var(--risk-low)';
 
@@ -88,23 +90,20 @@ export default function Prediction({ farmer, onLogout }) {
               </div>
               {loading ? <div className="alert alert-info">Loading prediction...</div> : prediction ? (
                 <>
-                  <div className="prediction-circle" style={{ '--circle-color': circleColor }}>
-                    <div className="prediction-circle-inner">
-                      <div className="prediction-circle-value">--</div>
-                      <div className="prediction-circle-unit">Days</div>
+                  {shelfLifeAvailable ? (
+                    <div className="prediction-circle" style={{ '--circle-color': circleColor }}>
+                      <div className="prediction-circle-inner">
+                        <div className="prediction-circle-value">{prediction.remainingShelfLife}</div>
+                        <div className="prediction-circle-unit">{prediction.shelfLifeUnit || 'days'}</div>
+                      </div>
                     </div>
-                  </div>
-                  <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-medium)', marginBottom: 16 }}>
-                    Remaining shelf-life prediction is not available yet.
-                  </div>
+                  ) : <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-medium)', marginBottom: 16 }}>Shelf-life model: Data collection in progress</div>}
                   <RiskBadge risk={risk} />
                 </>
               ) : (
                 <>
-                  <div className="prediction-circle" style={{ '--circle-color': 'var(--border)' }}>
-                    <div className="prediction-circle-inner"><div className="prediction-circle-value">--</div></div>
-                  </div>
                   <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-medium)' }}>
+                    <div>Shelf-life model: Data collection in progress</div>
                     Prediction pending. Sensor data has not produced a prediction yet.
                   </div>
                 </>
@@ -176,8 +175,7 @@ export default function Prediction({ farmer, onLogout }) {
                 <div className="section-title">Prediction Summary</div>
               </div>
               <p style={{ fontSize: '0.92rem', color: 'var(--text-medium)', lineHeight: 1.7, marginBottom: 14 }}>
-                The current conditions indicate that the <strong>{harvest.crop || harvest.cropType}</strong> should
-                be sold within the predicted shelf-life period.
+                Spoilage risk is assessed from the available prediction workflow. Remaining shelf life is shown only when a trained shelf-life model is available.
                 {risk === 'High' && ' Immediate action is recommended due to high spoilage risk.'}
                 {risk === 'Medium' && ' Monitor the batch closely.'}
                 {risk === 'Low' && ' Current spoilage risk is low.'}

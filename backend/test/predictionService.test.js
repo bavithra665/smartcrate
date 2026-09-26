@@ -86,7 +86,7 @@ test('derives elapsed hours from UTC harvest date/time and ignores client elapse
   expect(predictionService.buildMlPayload(harvest, sensorReading)).not.toHaveProperty('hours_since_harvest', 999);
 });
 
-test('uses the existing rule-based fallback for ML network failure', async () => {
+test('uses the existing rule-based spoilage fallback without fabricating shelf life', async () => {
   axios.post.mockRejectedValue(new Error('connect ETIMEDOUT'));
 
   const result = await predictionService.runPrediction(harvest, sensorReading);
@@ -95,7 +95,57 @@ test('uses the existing rule-based fallback for ML network failure', async () =>
   expect(Prediction.create).toHaveBeenCalledWith(expect.objectContaining({
     source: 'rule_based',
     modelVersion: 'rule_based_v1',
-    remainingShelfLife: expect.any(Number),
+  }));
+  expect(Prediction.create.mock.calls[0][0]).not.toHaveProperty('remainingShelfLife');
+});
+
+test('keeps spoilage prediction when FastAPI reports shelf-life model not ready', async () => {
+  axios.post
+    .mockResolvedValueOnce({ data: mlResponse })
+    .mockRejectedValueOnce({ response: { status: 503 } });
+
+  const result = await predictionService.runPrediction(harvest, sensorReading);
+
+  expect(axios.post).toHaveBeenNthCalledWith(
+    2,
+    'http://ml.test/predict/shelf-life',
+    {
+      crop: 'Tomato',
+      maturity_stage: 'Fully Ripe',
+      hours_since_harvest: 24,
+      temperature: 25.5,
+      humidity: 60,
+      ethylene: 1.2,
+      voc_index: 0.8,
+      co2: 420,
+    },
+    { timeout: 4321 }
+  );
+  expect(result.spoilageRisk).toBe('Medium');
+  expect(Prediction.create.mock.calls[0][0]).not.toHaveProperty('remainingShelfLife');
+  expect(Prediction.create.mock.calls[0][0]).toEqual(expect.objectContaining({ modelVersion: 'spoilage_risk_baseline' }));
+});
+
+test('stores shelf life only with validated model provenance', async () => {
+  axios.post
+    .mockResolvedValueOnce({ data: mlResponse })
+    .mockResolvedValueOnce({
+      data: {
+        remaining_shelf_life_days: 3.5,
+        model_version: 'shelf_life_regression_v1',
+        model_source: 'longitudinal_regression',
+        prediction_timestamp: '2026-09-26T06:30:00.000Z',
+      },
+    });
+
+  await predictionService.runPrediction(harvest, sensorReading);
+
+  expect(Prediction.create).toHaveBeenCalledWith(expect.objectContaining({
+    remainingShelfLife: 3.5,
+    shelfLifeModelVersion: 'shelf_life_regression_v1',
+    shelfLifeModelSource: 'longitudinal_regression',
+    shelfLifePredictedAt: new Date('2026-09-26T06:30:00.000Z'),
+    modelVersion: 'spoilage_risk_baseline',
   }));
 });
 

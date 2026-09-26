@@ -9,6 +9,9 @@ const predictionSchema = new mongoose.Schema({
   remainingShelfLife: { type: Number },   // days
   shelfLifeUnit: { type: String, default: 'days' },
   shelfLifeConfidence: { type: Number },  // 0-1, from ML model
+  shelfLifeModelVersion: { type: String },
+  shelfLifeModelSource: { type: String },
+  shelfLifePredictedAt: { type: Date },
 
   // Spoilage risk classification
   spoilageRisk: { type: String, enum: ['Low', 'Medium', 'High'] },
