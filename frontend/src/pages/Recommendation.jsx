@@ -5,6 +5,7 @@ import RiskBadge from '../components/RiskBadge';
 import { getHarvests } from '../api/harvestApi';
 import { generateRecommendation, getLatestRecommendation } from '../api/recommendationApi';
 import { submitFeedback } from '../api/feedbackApi';
+import { getQualityObservations, submitQualityObservation } from '../api/qualityObservationApi';
 import { formatCurrency } from '../utils/predictionUtils';
 import { FaArrowRight, FaSeedling } from 'react-icons/fa';
 import './Recommendation.css';
@@ -34,6 +35,17 @@ export default function Recommendation({ farmer, onLogout }) {
   });
   const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState('');
+  const [qualityObservations, setQualityObservations] = useState([]);
+  const [qualityForm, setQualityForm] = useState({
+    qualityGrade: 'Good',
+    saleabilityStatus: 'SALEABLE',
+    visibleSpoilage: 'NONE',
+    observedAt: new Date().toISOString().slice(0, 16),
+    comments: '',
+    labelConfidence: 'confirmed',
+  });
+  const [qualitySubmitting, setQualitySubmitting] = useState(false);
+  const [qualityMessage, setQualityMessage] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -56,6 +68,7 @@ export default function Recommendation({ farmer, onLogout }) {
         if (mounted) {
           setHarvest(selected);
           setRecommendation(response.data);
+          await loadQualityObservations(selected._id || selected.id);
         }
       } catch (apiError) {
         if (mounted) setError(apiError.response?.data?.message || apiError.message || 'Unable to load the market decision.');
@@ -76,6 +89,42 @@ export default function Recommendation({ farmer, onLogout }) {
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+  };
+
+  const handleQualityChange = (event) => {
+    const { name, value } = event.target;
+    setQualityForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const loadQualityObservations = async (harvestId) => {
+    try {
+      const response = await getQualityObservations(harvestId);
+      setQualityObservations(response.data || []);
+    } catch {
+      setQualityObservations([]);
+    }
+  };
+
+  const handleQualitySubmit = async (event) => {
+    event.preventDefault();
+    if (!harvest?._id && !harvest?.id) return;
+    setQualitySubmitting(true);
+    setQualityMessage('');
+
+    try {
+      const payload = {
+        ...qualityForm,
+        observedAt: qualityForm.observedAt ? new Date(qualityForm.observedAt).toISOString() : new Date().toISOString(),
+      };
+      await submitQualityObservation(harvest._id || harvest.id, payload);
+      setQualityMessage('Quality observation saved successfully.');
+      setQualityForm((prev) => ({ ...prev, comments: '', observedAt: new Date().toISOString().slice(0, 16) }));
+      await loadQualityObservations(harvest._id || harvest.id);
+    } catch (apiError) {
+      setQualityMessage(apiError.response?.data?.message || 'Unable to save the quality observation.');
+    } finally {
+      setQualitySubmitting(false);
+    }
   };
 
   const handleFeedbackSubmit = async (event) => {
@@ -165,6 +214,74 @@ export default function Recommendation({ farmer, onLogout }) {
                   ))}</tbody>
                 </table>
               </div>
+            </div>
+
+            <div style={{ marginTop: 28 }}>
+              <div className="section-title">Observed quality and saleability</div>
+              <div className="card" style={{ marginBottom: 18 }}>
+                <p style={{ marginTop: 0, color: 'var(--text-light)' }}>SENSOR DATA is separate from OBSERVED QUALITY. Record the farmer’s direct assessment here to support future shelf-life labeling without claiming a trained shelf-life model exists yet.</p>
+                <p style={{ marginBottom: 20, color: 'var(--text-medium)' }}><strong>Shelf-life model:</strong> Data collection in progress</p>
+                {qualityMessage && <div className="alert alert-success">{qualityMessage}</div>}
+                <form onSubmit={handleQualitySubmit}>
+                  <div className="feedback-form-grid">
+                    <div className="form-group">
+                      <label htmlFor="qualityGrade">Current quality</label>
+                      <select id="qualityGrade" name="qualityGrade" value={qualityForm.qualityGrade} onChange={handleQualityChange}>
+                        <option value="Good">Good</option>
+                        <option value="Excellent">Excellent</option>
+                        <option value="Fair">Fair</option>
+                        <option value="Poor">Poor</option>
+                        <option value="Unknown">Unknown</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="saleabilityStatus">Saleability</label>
+                      <select id="saleabilityStatus" name="saleabilityStatus" value={qualityForm.saleabilityStatus} onChange={handleQualityChange}>
+                        <option value="SALEABLE">SALEABLE</option>
+                        <option value="BORDERLINE">BORDERLINE</option>
+                        <option value="NOT_SALEABLE">NOT_SALEABLE</option>
+                        <option value="UNKNOWN">UNKNOWN</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="visibleSpoilage">Visible spoilage</label>
+                      <select id="visibleSpoilage" name="visibleSpoilage" value={qualityForm.visibleSpoilage} onChange={handleQualityChange}>
+                        <option value="NONE">NONE</option>
+                        <option value="PARTIAL">PARTIAL</option>
+                        <option value="SEVERE">SEVERE</option>
+                        <option value="UNKNOWN">UNKNOWN</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="observedAt">Observation time</label>
+                      <input id="observedAt" name="observedAt" type="datetime-local" value={qualityForm.observedAt} onChange={handleQualityChange} />
+                    </div>
+                  </div>
+                  <div className="form-group" style={{ marginTop: 16 }}>
+                    <label htmlFor="comments">Quality notes</label>
+                    <textarea id="comments" name="comments" value={qualityForm.comments} onChange={handleQualityChange} placeholder="Record visible condition, firmness, color, odor, and any saleability notes." />
+                  </div>
+                  <div style={{ marginTop: 20, display: 'flex', justifyContent: 'flex-end' }}>
+                    <button type="submit" className="btn btn-primary" disabled={qualitySubmitting}>{qualitySubmitting ? 'Saving...' : 'Save quality observation'}</button>
+                  </div>
+                </form>
+              </div>
+              {qualityObservations.length > 0 && (
+                <div className="card">
+                  <div className="section-title">Recent observations</div>
+                  <table>
+                    <thead><tr><th>Observed</th><th>Quality</th><th>Saleability</th><th>Visible spoilage</th></tr></thead>
+                    <tbody>{qualityObservations.slice(0, 5).map((obs) => (
+                      <tr key={obs._id || obs.observedAt}>
+                        <td>{new Date(obs.observedAt).toLocaleString()}</td>
+                        <td>{obs.qualityGrade || 'Unknown'}</td>
+                        <td>{obs.saleabilityStatus || 'UNKNOWN'}</td>
+                        <td>{obs.visibleSpoilage || 'UNKNOWN'}</td>
+                      </tr>
+                    ))}</tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             <div style={{ marginTop: 28 }}>

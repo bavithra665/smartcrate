@@ -2,6 +2,7 @@ const Prediction = require('../models/Prediction');
 const FarmerFeedback = require('../models/FarmerFeedback');
 const Harvest = require('../models/Harvest');
 const SensorReading = require('../models/SensorReading');
+const QualityObservation = require('../models/QualityObservation');
 
 const MINIMUM_EVALUATION_SAMPLES = 2;
 const BINARY_LABELS = ['NO_SPOILAGE', 'SPOILAGE'];
@@ -199,16 +200,35 @@ const evaluatePredictions = async () => {
 
 const getDataQualityReport = async () => {
   const result = await evaluatePredictions();
-  const [harvests, feedbackRecords, sensors] = await Promise.all([
+  const [harvests, feedbackRecords, sensors, qualityObservations] = await Promise.all([
     Harvest.find({}),
     FarmerFeedback.find({}),
     SensorReading.find({}),
+    QualityObservation.find({}),
   ]);
   const sensorFields = ['temperature', 'humidity', 'ethylene', 'voc', 'co2', 'currentWeight'];
   const availableSensorFields = Object.fromEntries(sensorFields.map((field) => [
     field,
     sensors.filter((sensor) => sensor[field] !== null && sensor[field] !== undefined).length,
   ]));
+
+  const harvestIdsWithRepeatedObservations = [...new Set(sensors.map((sensor) => asKey(sensor.harvestId)).filter(Boolean))].filter((harvestId) => {
+    const sensorCount = sensors.filter((sensor) => asKey(sensor.harvestId) === harvestId).length;
+    return sensorCount > 1;
+  }).length;
+
+  const validQualityObservations = qualityObservations.filter((observation) => {
+    if (!observation?.observedAt || !observation?.saleabilityStatus) return false;
+    const observed = new Date(observation.observedAt);
+    return !Number.isNaN(observed.getTime()) && observed.getTime() <= Date.now();
+  }).length;
+
+  const documentedSaleabilityTransitions = qualityObservations.filter((observation) => ['SALEABLE', 'BORDERLINE', 'NOT_SALEABLE'].includes(observation.saleabilityStatus)).length;
+  const validEndpoints = qualityObservations.filter((observation) => observation.isEndOfSaleableLife && observation.endOfSaleableLifeTimestamp && !Number.isNaN(new Date(observation.endOfSaleableLifeTimestamp).getTime())).length;
+  const censoredBatches = harvests.filter((harvest) => harvest.status === 'Sold').length;
+  const validTrainingRows = 0;
+  const minimumValidTrainingRows = 30;
+  const shelfLifeTrainingJustified = validTrainingRows >= minimumValidTrainingRows;
 
   return {
     totalHarvests: harvests.length,
@@ -219,9 +239,20 @@ const getDataQualityReport = async () => {
     unevaluatedOutcomes: result.unevaluatedSamples,
     missingOutcomeFields: result.records.filter((record) => !record.actualOutcome).length,
     sensorRecords: sensors.length,
+    repeatedObservationHarvests: harvestIdsWithRepeatedObservations,
+    validQualityObservations,
+    documentedSaleabilityTransitions,
+    validEndOfSaleableLifeTimestamps: validEndpoints,
     availableSensorFields,
     availableShelfLifeLabels: result.shelfLife.labelsAvailable,
     missingShelfLifeLabels: result.shelfLife.labelsMissing,
+    validShelfLifeTrainingRows: validTrainingRows,
+    censoredHarvests: censoredBatches,
+    minimumValidTrainingRows,
+    shelfLifeRegressionTrainingJustified: shelfLifeTrainingJustified,
+    readinessStatus: shelfLifeTrainingJustified
+      ? 'ready_for_regression_training'
+      : 'Shelf-life regression training is not yet justified.',
     modelVersions: result.modelVersions,
     predictionsBySource: result.bySource.map((group) => ({ modelSource: group.modelSource, count: group.evaluatedSamples + group.unevaluatedSamples })),
     shelfLifeReason: result.shelfLife.reason,

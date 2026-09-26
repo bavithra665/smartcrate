@@ -45,6 +45,13 @@ jest.mock('../models/FarmerFeedback', () => ({
   countDocuments: jest.fn(),
   aggregate: jest.fn(),
 }));
+jest.mock('../models/QualityObservation', () => ({
+  create: jest.fn(),
+  find: jest.fn(),
+  findOne: jest.fn(),
+  countDocuments: jest.fn(),
+  aggregate: jest.fn(),
+}));
 jest.mock('../models/Market', () => ({
   find: jest.fn(),
   findOne: jest.fn(),
@@ -83,6 +90,7 @@ const Recommendation = require('../models/Recommendation');
 const SensorReading = require('../models/SensorReading');
 const Device = require('../models/Device');
 const FarmerFeedback = require('../models/FarmerFeedback');
+const QualityObservation = require('../models/QualityObservation');
 const Market = require('../models/Market');
 const MarketPrice = require('../models/MarketPrice');
 
@@ -439,6 +447,69 @@ describe('sensor and feedback validation', () => {
 
     expect(response.status).toBe(400);
     expect(MarketPrice.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('quality observation and longitudinal data foundation', () => {
+  test('creates a valid quality observation for a harvest', async () => {
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, harvestDate: '2026-09-20T00:00:00.000Z', quantity: 50 });
+    QualityObservation.findOne.mockResolvedValue(null);
+    QualityObservation.create.mockResolvedValue({
+      _id: 'quality-1',
+      harvestId,
+      farmerId,
+      qualityGrade: 'Good',
+      saleabilityStatus: 'SALEABLE',
+      observedAt: '2026-09-23T08:00:00.000Z',
+      labelConfidence: 'confirmed',
+    });
+
+    const response = await request(app)
+      .post(`/api/harvests/${harvestId}/quality-observations`)
+      .set(auth())
+      .send({
+        qualityGrade: 'Good',
+        saleabilityStatus: 'SALEABLE',
+        observedAt: '2026-09-23T08:00:00.000Z',
+        labelConfidence: 'confirmed',
+      });
+
+    expect(response.status).toBe(201);
+    expect(QualityObservation.create).toHaveBeenCalledWith(expect.objectContaining({
+      harvestId,
+      saleabilityStatus: 'SALEABLE',
+      observedAt: expect.any(Date),
+    }));
+  });
+
+  test('rejects a future quality observation timestamp', async () => {
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, harvestDate: '2026-09-20T00:00:00.000Z' });
+
+    const response = await request(app)
+      .post(`/api/harvests/${harvestId}/quality-observations`)
+      .set(auth())
+      .send({
+        qualityGrade: 'Good',
+        saleabilityStatus: 'SALEABLE',
+        observedAt: '2999-01-01T00:00:00.000Z',
+      });
+
+    expect(response.status).toBe(400);
+  });
+
+  test('rejects an invalid saleability status', async () => {
+    Harvest.findOne.mockResolvedValue({ _id: harvestId, farmerId, harvestDate: '2026-09-20T00:00:00.000Z' });
+
+    const response = await request(app)
+      .post(`/api/harvests/${harvestId}/quality-observations`)
+      .set(auth())
+      .send({
+        qualityGrade: 'Good',
+        saleabilityStatus: 'INVALID_STATUS',
+        observedAt: '2026-09-23T08:00:00.000Z',
+      });
+
+    expect(response.status).toBe(400);
   });
 });
 

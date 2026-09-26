@@ -117,6 +117,21 @@ const recommendationGenerateValidators = [
 
 const recommendationHarvestValidators = [mongoId('harvestId')];
 
+const qualityObservationValidators = [
+  body('qualityGrade').optional().isIn(['Excellent', 'Good', 'Fair', 'Poor', 'Unknown']),
+  body('saleabilityStatus').notEmpty().withMessage('saleabilityStatus is required').isIn(['SALEABLE', 'BORDERLINE', 'NOT_SALEABLE', 'UNKNOWN']),
+  body('visibleSpoilage').optional().isIn(['NONE', 'PARTIAL', 'SEVERE', 'UNKNOWN']),
+  body('firmness').optional({ values: 'falsy' }).trim().isLength({ max: 100 }),
+  body('colorRipeness').optional({ values: 'falsy' }).trim().isLength({ max: 100 }),
+  body('observerSource').optional().isIn(['farmer', 'field_agent', 'device', 'manual', 'other']),
+  body('labelConfidence').optional().isIn(['confirmed', 'probable', 'uncertain']),
+  body('observedAt').isISO8601({ strict: true }).withMessage('observedAt must be an ISO-8601 timestamp'),
+  body('isEndOfSaleableLife').optional().isBoolean(),
+  body('endOfSaleableLifeTimestamp').optional({ values: 'falsy' }).isISO8601({ strict: true }).withMessage('endOfSaleableLifeTimestamp must be an ISO-8601 timestamp'),
+  body('comments').optional({ values: 'falsy' }).trim().isLength({ max: 1000 }),
+  body('forceReplace').optional().isBoolean(),
+];
+
 const feedbackValidators = [
   body('harvestId').isMongoId().withMessage('harvestId must be a valid MongoDB id'),
   body('predictionId').optional({ values: 'falsy' }).isMongoId(),
@@ -160,6 +175,7 @@ module.exports = {
   marketPriceQueryValidators,
   recommendationGenerateValidators,
   recommendationHarvestValidators,
+  qualityObservationValidators,
   feedbackValidators,
   profileValidators,
 };
