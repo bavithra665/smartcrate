@@ -6,6 +6,255 @@ const QualityObservation = require('../models/QualityObservation');
 
 const MINIMUM_EVALUATION_SAMPLES = 2;
 const BINARY_LABELS = ['NO_SPOILAGE', 'SPOILAGE'];
+const MINIMUM_SHELF_LIFE_VALID_ROWS = 30;
+const MINIMUM_DISTINCT_SHELF_LIFE_BATCHES = 10;
+
+const getDateValue = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const getHarvestObservation = (harvest, observationTimestamp) => {
+  if (!harvest?.harvestDate) return null;
+  const harvestDate = getDateValue(harvest.harvestDate);
+  const observationDate = getDateValue(observationTimestamp);
+  if (!harvestDate || !observationDate) return null;
+  const harvestTime = harvest.harvestTime || '00:00';
+  const match = /^([01]\d|2[0-3]):[0-5]\d$/.test(harvestTime) ? harvestTime : '00:00';
+  const harvestTimestamp = new Date(`${harvestDate.toISOString().slice(0, 10)}T${match}:00.000Z`);
+  const elapsedMs = observationDate.getTime() - harvestTimestamp.getTime();
+  return elapsedMs >= 0 ? elapsedMs / (1000 * 60 * 60 * 24) : null;
+};
+
+const buildBatchDisjointSplit = (rows = [], trainingShare = 0.7, validationShare = 0.15, randomSeed = 42) => {
+  if (!rows.length) return { train: [], validation: [], test: [], batchAssignments: {}, random_seed: randomSeed };
+
+  const batchIds = [...new Set(rows.map((row) => row.batch_id).filter(Boolean))];
+  const seed = Number.isFinite(randomSeed) ? randomSeed : 42;
+  let value = seed >>> 0;
+  const pseudoRandom = () => {
+    value = (1664525 * value + 1013904223) >>> 0;
+    return value / 4294967296;
+  };
+
+  const shuffledBatches = [...batchIds]
+    .map((batchId, index) => ({ batch_id: batchId, order: pseudoRandom() + index * 0.0000001 }))
+    .sort((left, right) => left.order - right.order)
+    .map((entry) => entry.batch_id);
+
+  const totalBatches = shuffledBatches.length;
+  const trainCount = Math.max(1, Math.floor(totalBatches * trainingShare));
+  const validationCount = Math.max(1, Math.floor(totalBatches * validationShare));
+  const testCount = Math.max(1, totalBatches - trainCount - validationCount);
+
+  const assignments = {};
+  shuffledBatches.forEach((batchId, index) => {
+    if (index < trainCount) assignments[batchId] = 'train';
+    else if (index < trainCount + validationCount) assignments[batchId] = 'validation';
+    else assignments[batchId] = 'test';
+  });
+
+  return {
+    train: rows.filter((row) => assignments[row.batch_id] === 'train'),
+    validation: rows.filter((row) => assignments[row.batch_id] === 'validation'),
+    test: rows.filter((row) => assignments[row.batch_id] === 'test'),
+    batchAssignments: assignments,
+    random_seed: seed,
+    split_strategy: 'batch_disjoint_and_time_aware_when_available',
+    train_batch_count: trainCount,
+    validation_batch_count: validationCount,
+    test_batch_count: testCount,
+  };
+};
+
+const auditShelfLifeReadiness = ({ harvests = [], sensorReadings = [], qualityObservations = [] }) => {
+  const harvestList = Array.isArray(harvests) ? harvests : [];
+  const sensorList = Array.isArray(sensorReadings) ? sensorReadings : [];
+  const qualityList = Array.isArray(qualityObservations) ? qualityObservations : [];
+
+  const totalHarvestBatches = harvestList.length;
+  const batchesWithRepeatedSensorObservations = [...new Set(sensorList.map((sensor) => asKey(sensor.harvestId)).filter(Boolean))].filter((harvestId) => {
+    const count = sensorList.filter((sensor) => asKey(sensor.harvestId) === harvestId).length;
+    return count > 1;
+  }).length;
+
+  const batchesWithQualityObservations = [...new Set(qualityList.map((observation) => asKey(observation.harvestId)).filter(Boolean))].length;
+  const batchesWithDocumentedEndpoints = [...new Set(qualityList
+    .filter((observation) => observation?.isEndOfSaleableLife && observation?.endOfSaleableLifeTimestamp)
+    .map((observation) => asKey(observation.harvestId))
+    .filter(Boolean))].length;
+
+  const validTargetRows = [];
+  const invalidTargetRows = [];
+  const insufficientDataRows = [];
+  const unknownEndpointBatches = new Set();
+  const censoredBatches = new Set();
+
+  for (const harvest of harvestList) {
+    const harvestId = asKey(harvest?._id || harvest?.id);
+    if (!harvestId) continue;
+
+    const harvestSensors = sensorList.filter((sensor) => asKey(sensor.harvestId) === harvestId);
+    const harvestQualityObservations = qualityList.filter((observation) => asKey(observation.harvestId) === harvestId);
+    const validEndpoints = harvestQualityObservations.filter((observation) => {
+      const endpoint = getDateValue(observation.endOfSaleableLifeTimestamp);
+      const observed = getDateValue(observation.observedAt);
+      return observation?.isEndOfSaleableLife && endpoint && observed && endpoint.getTime() > observed.getTime();
+    });
+
+    if (harvest.status === 'Sold') {
+      censoredBatches.add(harvestId);
+    }
+
+    if (harvest.status !== 'Sold' && !validEndpoints.length && harvestQualityObservations.some((observation) => observation?.saleabilityStatus)) {
+      unknownEndpointBatches.add(harvestId);
+    }
+
+    for (const observation of harvestQualityObservations) {
+      const observationTime = getDateValue(observation.observedAt);
+      const endpointTime = getDateValue(observation.endOfSaleableLifeTimestamp);
+      if (!observationTime || !endpointTime || !observation.isEndOfSaleableLife) {
+        if (observation.isEndOfSaleableLife || observation.endOfSaleableLifeTimestamp) {
+          invalidTargetRows.push({ harvestId, reason: 'missing_or_invalid_endpoint' });
+        }
+        continue;
+      }
+
+      const targetDays = (endpointTime.getTime() - observationTime.getTime()) / (1000 * 60 * 60 * 24);
+      const relevantSensor = [...harvestSensors].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
+        .filter((sensor) => getDateValue(sensor.timestamp) && getDateValue(sensor.timestamp).getTime() <= observationTime.getTime())
+        .at(-1);
+
+      if (targetDays <= 0 || !Number.isFinite(targetDays)) {
+        invalidTargetRows.push({ harvestId, reason: 'non_positive_remaining_shelf_life' });
+        continue;
+      }
+
+      if (!harvest.crop || !harvest.maturityStage || !relevantSensor) {
+        insufficientDataRows.push({ harvestId, reason: 'missing_required_feature_data' });
+        continue;
+      }
+
+      validTargetRows.push({
+        batch_id: harvestId,
+        harvest_id: harvestId,
+        crop: harvest.crop,
+        variety: harvest.variety || null,
+        maturity_stage: harvest.maturityStage,
+        storage_condition: harvest.storageCondition || null,
+        observation_timestamp: observationTime.toISOString(),
+        end_of_saleable_life_timestamp: endpointTime.toISOString(),
+        remaining_shelf_life_days: Number(targetDays.toFixed(6)),
+        temperature: relevantSensor.temperature ?? null,
+        humidity: relevantSensor.humidity ?? null,
+        ethylene: relevantSensor.ethylene ?? null,
+        voc_index: relevantSensor.voc ?? null,
+        co2: relevantSensor.co2 ?? null,
+        current_weight: relevantSensor.currentWeight ?? null,
+        hours_since_harvest: getHarvestObservation(harvest, observationTime.toISOString()) ?? null,
+      });
+    }
+  }
+
+  const distinctTrainingBatches = [...new Set(validTargetRows.map((row) => row.batch_id))].length;
+  const validShelfLifeTrainingRows = validTargetRows.length;
+  const minimumValidTrainingRowsReached = validShelfLifeTrainingRows >= MINIMUM_SHELF_LIFE_VALID_ROWS;
+  const minimumDistinctBatchesReached = distinctTrainingBatches >= MINIMUM_DISTINCT_SHELF_LIFE_BATCHES;
+  const modelReadinessStatus = minimumValidTrainingRowsReached && minimumDistinctBatchesReached
+    ? 'ready_for_regression_training'
+    : 'not_ready_insufficient_data';
+
+  return {
+    totalHarvestBatches,
+    batchesWithRepeatedSensorObservations,
+    batchesWithQualityObservations,
+    batchesWithDocumentedEndpoints,
+    validShelfLifeTrainingRows,
+    distinctTrainingBatches,
+    censoredBatches: censoredBatches.size,
+    unknownEndpointBatches: unknownEndpointBatches.size,
+    invalidTargetRows: invalidTargetRows.length,
+    insufficientDataRows: insufficientDataRows.length,
+    minimumValidTrainingRows: MINIMUM_SHELF_LIFE_VALID_ROWS,
+    minimumDistinctHarvestBatches: MINIMUM_DISTINCT_SHELF_LIFE_BATCHES,
+    modelReadinessStatus,
+    readinessMessage: minimumValidTrainingRowsReached && minimumDistinctBatchesReached
+      ? 'Shelf-life regression model prepared for training.'
+      : 'Shelf-life regression training is not yet justified because the dataset does not meet the required readiness threshold.',
+    validTargetRows,
+    invalidTargetRowsDetailed: invalidTargetRows,
+    insufficientDataRowsDetailed: insufficientDataRows,
+  };
+};
+
+const prepareShelfLifeTrainingData = ({ harvests = [], sensorReadings = [], qualityObservations = [] }) => {
+  const readiness = auditShelfLifeReadiness({ harvests, sensorReadings, qualityObservations });
+  const validRows = readiness.validTargetRows.map((row) => ({
+    batch_id: row.batch_id,
+    observation_timestamp: row.observation_timestamp,
+    end_of_saleable_life_timestamp: row.end_of_saleable_life_timestamp,
+    crop: row.crop,
+    variety: row.variety,
+    maturity_stage: row.maturity_stage,
+    storage_condition: row.storage_condition,
+    hours_since_harvest: row.hours_since_harvest,
+    temperature: row.temperature,
+    humidity: row.humidity,
+    ethylene: row.ethylene,
+    voc_index: row.voc_index,
+    co2: row.co2,
+    current_weight: row.current_weight,
+    remaining_shelf_life_days: row.remaining_shelf_life_days,
+    feature_names: [
+      'crop',
+      'variety',
+      'maturity_stage',
+      'hours_since_harvest',
+      'temperature',
+      'humidity',
+      'ethylene',
+      'voc_index',
+      'co2',
+      'storage_condition',
+      'current_weight',
+    ],
+    leakage_protected: true,
+  }));
+
+  return {
+    status: readiness.modelReadinessStatus === 'ready_for_regression_training' ? 'ready' : 'not_ready',
+    readiness,
+    rows: validRows,
+    feature_policy: {
+      allowed_features: [
+        'crop',
+        'variety',
+        'maturity_stage',
+        'hours_since_harvest',
+        'temperature',
+        'humidity',
+        'ethylene',
+        'voc_index',
+        'co2',
+        'storage_condition',
+        'current_weight',
+      ],
+      excluded_features: [
+        'end_of_saleable_life_timestamp',
+        'future_quality_observations',
+        'future_sensor_readings',
+        'prediction_outcome_fields',
+        'farmer_identity',
+        'harvest_id',
+        'prediction_id',
+        'recommendation_id',
+        'comments',
+        'sale_date',
+      ],
+    },
+  };
+};
 
 const asKey = (value) => (value == null ? null : String(value));
 
@@ -206,6 +455,11 @@ const getDataQualityReport = async () => {
     SensorReading.find({}),
     QualityObservation.find({}),
   ]);
+  const shelfLifeAudit = auditShelfLifeReadiness({
+    harvests,
+    sensorReadings: sensors,
+    qualityObservations,
+  });
   const sensorFields = ['temperature', 'humidity', 'ethylene', 'voc', 'co2', 'currentWeight'];
   const availableSensorFields = Object.fromEntries(sensorFields.map((field) => [
     field,
@@ -226,11 +480,21 @@ const getDataQualityReport = async () => {
   const documentedSaleabilityTransitions = qualityObservations.filter((observation) => ['SALEABLE', 'BORDERLINE', 'NOT_SALEABLE'].includes(observation.saleabilityStatus)).length;
   const validEndpoints = qualityObservations.filter((observation) => observation.isEndOfSaleableLife && observation.endOfSaleableLifeTimestamp && !Number.isNaN(new Date(observation.endOfSaleableLifeTimestamp).getTime())).length;
   const censoredBatches = harvests.filter((harvest) => harvest.status === 'Sold').length;
-  const validTrainingRows = 0;
-  const minimumValidTrainingRows = 30;
-  const shelfLifeTrainingJustified = validTrainingRows >= minimumValidTrainingRows;
+  const validTrainingRows = shelfLifeAudit.validShelfLifeTrainingRows;
+  const minimumValidTrainingRows = shelfLifeAudit.minimumValidTrainingRows;
+  const shelfLifeTrainingJustified = validTrainingRows >= minimumValidTrainingRows && shelfLifeAudit.distinctTrainingBatches >= shelfLifeAudit.minimumDistinctHarvestBatches;
 
   return {
+    totalHarvestBatches: harvests.length,
+    batchesWithRepeatedSensorObservations: shelfLifeAudit.batchesWithRepeatedSensorObservations,
+    batchesWithQualityObservations: shelfLifeAudit.batchesWithQualityObservations,
+    batchesWithDocumentedEndpoints: shelfLifeAudit.batchesWithDocumentedEndpoints,
+    validShelfLifeTrainingRows: validTrainingRows,
+    distinctTrainingBatches: shelfLifeAudit.distinctTrainingBatches,
+    censoredBatches,
+    unknownEndpointBatches: shelfLifeAudit.unknownEndpointBatches,
+    invalidTargetRows: shelfLifeAudit.invalidTargetRows,
+    insufficientDataRows: shelfLifeAudit.insufficientDataRows,
     totalHarvests: harvests.length,
     totalPredictions: result.records.length,
     totalFeedbackRecords: feedbackRecords.length,
@@ -246,31 +510,42 @@ const getDataQualityReport = async () => {
     availableSensorFields,
     availableShelfLifeLabels: result.shelfLife.labelsAvailable,
     missingShelfLifeLabels: result.shelfLife.labelsMissing,
-    validShelfLifeTrainingRows: validTrainingRows,
     censoredHarvests: censoredBatches,
     minimumValidTrainingRows,
+    minimumDistinctHarvestBatches: shelfLifeAudit.minimumDistinctHarvestBatches,
     shelfLifeRegressionTrainingJustified: shelfLifeTrainingJustified,
     readinessStatus: shelfLifeTrainingJustified
       ? 'ready_for_regression_training'
-      : 'Shelf-life regression training is not yet justified.',
+      : 'Shelf-life regression training is not yet justified because the dataset does not meet the required readiness threshold.',
     modelVersions: result.modelVersions,
     predictionsBySource: result.bySource.map((group) => ({ modelSource: group.modelSource, count: group.evaluatedSamples + group.unevaluatedSamples })),
     shelfLifeReason: result.shelfLife.reason,
+    shelfLifeAudit,
   };
 };
 
 const prepareMlData = async () => {
   const result = await evaluatePredictions();
+  const [harvests, sensors, qualityObservations] = await Promise.all([
+    Harvest.find({}),
+    SensorReading.find({}),
+    QualityObservation.find({}),
+  ]);
+  const shelfLifeReadiness = auditShelfLifeReadiness({ harvests, sensorReadings: sensors, qualityObservations });
   return {
     status: 'ok',
     methodology: 'Rows retain only prediction-time inputs and explicit farmer-reported outcomes; no PII or farmer identifiers are included.',
     splitStrategy: 'Keep all rows from one harvest_id in one split; prefer time-aware validation and reserve unseen final harvest batches.',
     records: result.records.map((record) => record.preparedRow),
     dataQuality: await getDataQualityReport(),
+    shelfLifeReadiness,
   };
 };
 
 module.exports = {
+  auditShelfLifeReadiness,
+  buildBatchDisjointSplit,
+  prepareShelfLifeTrainingData,
   actualSpoilageLabel,
   predictedSpoilageLabel,
   calculateBinaryMetrics,
