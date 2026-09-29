@@ -26,9 +26,9 @@ export default function Recommendation({ farmer, onLogout }) {
     spoiledQuantity: '',
     actualSpoilageOutcome: 'Not Reported',
     actualQuality: 'Not Reported',
-    recommendationHelpful: true,
-    recommendationFollowed: true,
-    predictionAccurate: true,
+    recommendationHelpful: '',
+    recommendationFollowed: '',
+    predictionAccurate: '',
     actualMarket: '',
     comments: '',
     observedAt: '',
@@ -37,15 +37,18 @@ export default function Recommendation({ farmer, onLogout }) {
   const [feedbackMessage, setFeedbackMessage] = useState('');
   const [qualityObservations, setQualityObservations] = useState([]);
   const [qualityForm, setQualityForm] = useState({
-    qualityGrade: 'Good',
-    saleabilityStatus: 'SALEABLE',
-    visibleSpoilage: 'NONE',
+    qualityGrade: 'Unknown',
+    saleabilityStatus: 'UNKNOWN',
+    visibleSpoilage: 'UNKNOWN',
     observedAt: new Date().toISOString().slice(0, 16),
     comments: '',
-    labelConfidence: 'confirmed',
+    labelConfidence: 'uncertain',
+    isEndOfSaleableLife: false,
+    endOfSaleableLifeTimestamp: '',
   });
   const [qualitySubmitting, setQualitySubmitting] = useState(false);
   const [qualityMessage, setQualityMessage] = useState('');
+  const [qualityError, setQualityError] = useState('');
 
   useEffect(() => {
     let mounted = true;
@@ -96,32 +99,36 @@ export default function Recommendation({ farmer, onLogout }) {
     setQualityForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  const loadQualityObservations = async (harvestId) => {
+  async function loadQualityObservations(harvestId) {
     try {
       const response = await getQualityObservations(harvestId);
       setQualityObservations(response.data || []);
     } catch {
       setQualityObservations([]);
     }
-  };
+  }
 
   const handleQualitySubmit = async (event) => {
     event.preventDefault();
     if (!harvest?._id && !harvest?.id) return;
     setQualitySubmitting(true);
     setQualityMessage('');
+    setQualityError('');
 
     try {
       const payload = {
         ...qualityForm,
         observedAt: qualityForm.observedAt ? new Date(qualityForm.observedAt).toISOString() : new Date().toISOString(),
+        endOfSaleableLifeTimestamp: qualityForm.isEndOfSaleableLife && qualityForm.endOfSaleableLifeTimestamp
+          ? new Date(qualityForm.endOfSaleableLifeTimestamp).toISOString()
+          : undefined,
       };
       await submitQualityObservation(harvest._id || harvest.id, payload);
       setQualityMessage('Quality observation saved successfully.');
-      setQualityForm((prev) => ({ ...prev, comments: '', observedAt: new Date().toISOString().slice(0, 16) }));
+      setQualityForm((prev) => ({ ...prev, comments: '', observedAt: new Date().toISOString().slice(0, 16), isEndOfSaleableLife: false, endOfSaleableLifeTimestamp: '' }));
       await loadQualityObservations(harvest._id || harvest.id);
     } catch (apiError) {
-      setQualityMessage(apiError.response?.data?.message || 'Unable to save the quality observation.');
+      setQualityError(apiError.response?.data?.message || 'Unable to save the quality observation.');
     } finally {
       setQualitySubmitting(false);
     }
@@ -146,11 +153,15 @@ export default function Recommendation({ farmer, onLogout }) {
         recommendationHelpful: feedbackForm.recommendationHelpful,
         recommendationFollowed: feedbackForm.recommendationFollowed,
         predictionAccurate: feedbackForm.predictionAccurate,
+        observedAt: feedbackForm.observedAt ? new Date(feedbackForm.observedAt).toISOString() : undefined,
       };
+      ['recommendationHelpful', 'recommendationFollowed', 'predictionAccurate'].forEach((field) => {
+        payload[field] = feedbackForm[field] === '' ? undefined : feedbackForm[field] === 'true';
+      });
 
       await submitFeedback(payload);
       setFeedbackMessage('Outcome report saved successfully.');
-      setFeedbackForm((prev) => ({ ...prev, actualSellingPrice: '', soldQuantity: '', spoiledQuantity: '', actualMarket: '', comments: '', observedAt: '' }));
+      setFeedbackForm((prev) => ({ ...prev, actualSellingPrice: '', soldQuantity: '', spoiledQuantity: '', actualMarket: '', comments: '', observedAt: '', recommendationHelpful: '', recommendationFollowed: '', predictionAccurate: '' }));
     } catch (apiError) {
       setError(apiError.response?.data?.message || 'Unable to save the outcome report.');
     } finally {
@@ -171,7 +182,9 @@ export default function Recommendation({ farmer, onLogout }) {
                 <FaSeedling style={{ color: 'var(--primary)', fontSize: '1.4rem' }} />
                 <strong>{harvest?.crop} | {harvest?.quantity} {harvest?.unit || 'kg'}</strong>
                 <RiskBadge risk={recommendation.risk?.level || 'Unknown'} />
-                <span style={{ marginLeft: 'auto' }}>Shelf life: {displayValue(recommendation.shelfLife?.remainingDays, (value) => `${value} days`)}</span>
+                <span style={{ marginLeft: 'auto' }}>{recommendation.shelfLife?.available
+                  ? `Remaining shelf life: ${recommendation.shelfLife.remainingDays} days`
+                  : 'Shelf-life model: Data collection in progress'}</span>
               </div>
             </div>
 
@@ -198,11 +211,12 @@ export default function Recommendation({ farmer, onLogout }) {
               <div className="section-header"><div className="section-title">Market factors</div><button className="btn btn-outline btn-sm" onClick={() => navigate('/markets')}>View Markets <FaArrowRight /></button></div>
               <div className="card table-wrap">
                 <table>
-                  <thead><tr><th>Market</th><th>Price</th><th>Observed</th><th>Fresh</th><th>Distance</th><th>Travel</th><th>Transport</th><th>Gross</th><th>Net</th></tr></thead>
+                  <thead><tr><th>Market</th><th>Price</th><th>Source</th><th>Observed</th><th>Fresh</th><th>Distance</th><th>Travel</th><th>Transport</th><th>Gross</th><th>Net</th></tr></thead>
                   <tbody>{markets.map((market) => (
                     <tr key={String(market.marketId)}>
                       <td>{market.marketName}</td>
                       <td>{displayValue(market.price, (value) => `${market.currency || ''} ${value}/${market.unit || ''}`)}</td>
+                      <td>{market.source && /mock|sample|development/i.test(market.source) ? `Development sample (${market.source})` : displayValue(market.source)}</td>
                       <td>{displayValue(market.observedAt, (value) => new Date(value).toLocaleString())}</td>
                       <td>{market.priceFresh ? 'Yes' : 'No'}</td>
                       <td>{displayValue(market.distanceKm, (value) => `${value} km`)}</td>
@@ -221,12 +235,14 @@ export default function Recommendation({ farmer, onLogout }) {
               <div className="card" style={{ marginBottom: 18 }}>
                 <p style={{ marginTop: 0, color: 'var(--text-light)' }}>SENSOR DATA is separate from OBSERVED QUALITY. Record the farmer’s direct assessment here to support future shelf-life labeling without claiming a trained shelf-life model exists yet.</p>
                 <p style={{ marginBottom: 20, color: 'var(--text-medium)' }}><strong>Shelf-life model:</strong> Data collection in progress</p>
+                {qualityError && <div className="alert alert-error">{qualityError}</div>}
                 {qualityMessage && <div className="alert alert-success">{qualityMessage}</div>}
                 <form onSubmit={handleQualitySubmit}>
                   <div className="feedback-form-grid">
                     <div className="form-group">
                       <label htmlFor="qualityGrade">Current quality</label>
                       <select id="qualityGrade" name="qualityGrade" value={qualityForm.qualityGrade} onChange={handleQualityChange}>
+                        <option value="Unknown">Unknown</option>
                         <option value="Good">Good</option>
                         <option value="Excellent">Excellent</option>
                         <option value="Fair">Fair</option>
@@ -237,6 +253,7 @@ export default function Recommendation({ farmer, onLogout }) {
                     <div className="form-group">
                       <label htmlFor="saleabilityStatus">Saleability</label>
                       <select id="saleabilityStatus" name="saleabilityStatus" value={qualityForm.saleabilityStatus} onChange={handleQualityChange}>
+                        <option value="UNKNOWN">UNKNOWN</option>
                         <option value="SALEABLE">SALEABLE</option>
                         <option value="BORDERLINE">BORDERLINE</option>
                         <option value="NOT_SALEABLE">NOT_SALEABLE</option>
@@ -246,6 +263,7 @@ export default function Recommendation({ farmer, onLogout }) {
                     <div className="form-group">
                       <label htmlFor="visibleSpoilage">Visible spoilage</label>
                       <select id="visibleSpoilage" name="visibleSpoilage" value={qualityForm.visibleSpoilage} onChange={handleQualityChange}>
+                        <option value="UNKNOWN">UNKNOWN</option>
                         <option value="NONE">NONE</option>
                         <option value="PARTIAL">PARTIAL</option>
                         <option value="SEVERE">SEVERE</option>
@@ -257,6 +275,30 @@ export default function Recommendation({ farmer, onLogout }) {
                       <input id="observedAt" name="observedAt" type="datetime-local" value={qualityForm.observedAt} onChange={handleQualityChange} />
                     </div>
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 16 }}>
+                    <input
+                      type="checkbox"
+                      name="isEndOfSaleableLife"
+                      checked={qualityForm.isEndOfSaleableLife}
+                      onChange={(event) => setQualityForm((previous) => ({
+                        ...previous,
+                        isEndOfSaleableLife: event.target.checked,
+                        saleabilityStatus: event.target.checked ? 'NOT_SALEABLE' : previous.saleabilityStatus,
+                      }))}
+                    />
+                    This observation documents the end of saleable life
+                  </label>
+                  {qualityForm.isEndOfSaleableLife && <div className="form-group" style={{ marginTop: 12 }}>
+                    <label htmlFor="endOfSaleableLifeTimestamp">Documented endpoint time</label>
+                    <input
+                      id="endOfSaleableLifeTimestamp"
+                      name="endOfSaleableLifeTimestamp"
+                      type="datetime-local"
+                      value={qualityForm.endOfSaleableLifeTimestamp}
+                      onChange={handleQualityChange}
+                      required
+                    />
+                  </div>}
                   <div className="form-group" style={{ marginTop: 16 }}>
                     <label htmlFor="comments">Quality notes</label>
                     <textarea id="comments" name="comments" value={qualityForm.comments} onChange={handleQualityChange} placeholder="Record visible condition, firmness, color, odor, and any saleability notes." />
@@ -350,19 +392,21 @@ export default function Recommendation({ farmer, onLogout }) {
                     </div>
                   </div>
 
-                  <div className="feedback-status-row" style={{ marginTop: 18 }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="checkbox" name="recommendationHelpful" checked={feedbackForm.recommendationHelpful} onChange={handleFeedbackChange} />
-                      Recommendation helpful
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="checkbox" name="recommendationFollowed" checked={feedbackForm.recommendationFollowed} onChange={handleFeedbackChange} />
-                      Followed recommendation
-                    </label>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <input type="checkbox" name="predictionAccurate" checked={feedbackForm.predictionAccurate} onChange={handleFeedbackChange} />
-                      Prediction matched outcomes
-                    </label>
+                  <div className="feedback-form-grid" style={{ marginTop: 18 }}>
+                    {[
+                      ['recommendationHelpful', 'Was the recommendation helpful?'],
+                      ['recommendationFollowed', 'Did you follow the recommendation?'],
+                      ['predictionAccurate', 'Did the prediction match the outcome?'],
+                    ].map(([name, label]) => (
+                      <div className="form-group" key={name}>
+                        <label htmlFor={name}>{label}</label>
+                        <select id={name} name={name} value={feedbackForm[name]} onChange={handleFeedbackChange}>
+                          <option value="">Not reported</option>
+                          <option value="true">Yes</option>
+                          <option value="false">No</option>
+                        </select>
+                      </div>
+                    ))}
                   </div>
 
                   <div className="form-group" style={{ marginTop: 16 }}>

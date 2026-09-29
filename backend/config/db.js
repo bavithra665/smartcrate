@@ -1,11 +1,13 @@
-const mongoose = require('mongoose');
+const prisma = require('./prisma');
+const otpCleanupService = require('../services/otpCleanupService');
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI);
-    console.log(`MongoDB connected: ${conn.connection.host}`);
+    await prisma.$connect();
+    otpCleanupService.start();
+    console.log('PostgreSQL connected through Prisma');
   } catch (err) {
-    console.error('MongoDB connection error:', err.message);
+    console.error('PostgreSQL connection error:', err.message);
     process.exit(1);
   }
 };

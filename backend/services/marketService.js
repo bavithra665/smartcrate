@@ -1,5 +1,4 @@
-const Market = require('../models/Market');
-const MarketPrice = require('../models/MarketPrice');
+const prisma = require('../config/prisma');
 const { MarketDataProvider } = require('./marketDataProvider');
 
 const VALID_UNITS = ['kg', 'quintal', 'tonne'];
@@ -122,50 +121,44 @@ const syncMarketPrices = async ({ crop, location } = {}) => {
   for (const record of records) {
     const normalizedRecord = normalizePriceRecord({ ...record, crop: record.crop || crop, source: record.source || provider.source });
 
-    let market = await Market.findOne({
-      name: normalizedRecord.marketName,
-      location: normalizedRecord.location,
+    let market = await prisma.market.findFirst({
+      where: { name: normalizedRecord.marketName, location: normalizedRecord.location },
     });
 
     if (!market) {
-      market = await Market.create({
-        name: normalizedRecord.marketName,
-        location: normalizedRecord.location,
-        district: normalizedRecord.district,
-        state: normalizedRecord.state,
-        marketType: 'Local',
-        isActive: true,
+      market = await prisma.market.create({
+        data: {
+          name: normalizedRecord.marketName,
+          location: normalizedRecord.location,
+          district: normalizedRecord.district,
+          state: normalizedRecord.state,
+          marketType: 'Local',
+          isActive: true,
+        },
       });
     }
 
     const observedAt = normalizedRecord.observedAt;
-    const doc = await MarketPrice.findOneAndUpdate(
-      {
-        marketId: market._id,
-        crop: normalizedRecord.crop,
-        unit: normalizedRecord.unit,
-        observedAt,
-      },
-      {
-        marketId: market._id,
-        crop: normalizedRecord.crop,
-        price: normalizedRecord.price,
-        unit: normalizedRecord.unit,
-        currency: normalizedRecord.currency,
-        observedAt,
-        source: normalizedRecord.source,
-        metadata: normalizedRecord.metadata,
-        minPrice: normalizedRecord.price,
-        maxPrice: normalizedRecord.price,
-        modalPrice: normalizedRecord.price,
-        date: observedAt,
-      },
-      {
-        upsert: true,
-        new: true,
-        setDefaultsOnInsert: true,
-      }
-    );
+    const priceData = {
+      marketId: market.id,
+      crop: normalizedRecord.crop,
+      price: normalizedRecord.price,
+      unit: normalizedRecord.unit,
+      currency: normalizedRecord.currency,
+      observedAt,
+      source: normalizedRecord.source,
+      metadata: normalizedRecord.metadata,
+      minPrice: normalizedRecord.price,
+      maxPrice: normalizedRecord.price,
+      modalPrice: normalizedRecord.price,
+      date: observedAt,
+    };
+    const existing = await prisma.marketPrice.findFirst({
+      where: { marketId: market.id, crop: normalizedRecord.crop, unit: normalizedRecord.unit, observedAt },
+    });
+    const doc = existing
+      ? await prisma.marketPrice.update({ where: { id: existing.id }, data: priceData })
+      : await prisma.marketPrice.create({ data: priceData });
 
     normalized.push(doc);
   }

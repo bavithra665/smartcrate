@@ -1,20 +1,20 @@
-const Farmer = require('../models/Farmer');
+const prisma = require('../config/prisma');
+const { toApiRecord } = require('../utils/apiRecord');
 
 // GET /api/farmers/profile
 const getProfile = async (req, res) => {
-  res.json(req.farmer);
+  res.json(toApiRecord(req.farmer, { includeVersion: false }));
 };
 
 // PUT /api/farmers/profile
 const updateProfile = async (req, res, next) => {
   try {
     const { name, location, village, district, state, preferredLanguage } = req.body;
-    const updated = await Farmer.findByIdAndUpdate(
-      req.farmer._id,
-      { name, location, village, district, state, preferredLanguage },
-      { new: true, runValidators: true }
-    );
-    res.json(updated);
+    const updated = await prisma.farmer.update({
+      where: { id: req.farmer.id },
+      data: { name: name.trim(), location, village, district, state, preferredLanguage },
+    });
+    res.json(toApiRecord(updated));
   } catch (err) {
     next(err);
   }

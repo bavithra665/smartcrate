@@ -1,4 +1,5 @@
-const Farmer = require('../models/Farmer');
+const prisma = require('../config/prisma');
+const { toApiRecord } = require('../utils/apiRecord');
 const { generateOTP, verifyOTP } = require('../utils/otpUtils');
 const { generateToken } = require('../utils/generateToken');
 
@@ -27,15 +28,15 @@ const verifyOtp = async (req, res, next) => {
     const result = await verifyOTP(mobile, otp, { consume: false });
     if (!result.valid) return res.status(400).json({ message: result.message });
 
-    const farmer = await Farmer.findOne({ mobile });
+    const farmer = await prisma.farmer.findUnique({ where: { mobile } });
     if (!farmer) {
       // Farmer not registered yet — tell frontend to show registration
       return res.status(404).json({ message: 'Farmer not registered', needsRegistration: true, mobile });
     }
 
     await verifyOTP(mobile, otp);
-    const token = generateToken(farmer._id);
-    res.json({ token, farmer });
+    const token = generateToken(farmer.id);
+    res.json({ token, farmer: toApiRecord(farmer) });
   } catch (err) {
     next(err);
   }
@@ -49,12 +50,14 @@ const register = async (req, res, next) => {
     const result = await verifyOTP(mobile, otp);
     if (!result.valid) return res.status(400).json({ message: result.message });
 
-    const existing = await Farmer.findOne({ mobile });
+    const existing = await prisma.farmer.findUnique({ where: { mobile } });
     if (existing) return res.status(400).json({ message: 'Mobile number already registered' });
 
-    const farmer = await Farmer.create({ mobile, name, location, village, district, state, preferredLanguage });
-    const token = generateToken(farmer._id);
-    res.status(201).json({ token, farmer });
+    const farmer = await prisma.farmer.create({
+      data: { mobile, name: name.trim(), location, village, district, state, preferredLanguage },
+    });
+    const token = generateToken(farmer.id);
+    res.status(201).json({ token, farmer: toApiRecord(farmer) });
   } catch (err) {
     next(err);
   }
@@ -62,7 +65,7 @@ const register = async (req, res, next) => {
 
 // GET /api/auth/me
 const getMe = async (req, res) => {
-  res.json(req.farmer);
+  res.json(toApiRecord(req.farmer, { includeVersion: false }));
 };
 
 module.exports = { sendOtp, verifyOtp, register, getMe };

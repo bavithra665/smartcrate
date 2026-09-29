@@ -13,6 +13,7 @@ export default function Markets({ farmer, onLogout }) {
   const [sortBy, setSortBy] = useState('distance');
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let ignore = false;
@@ -50,7 +51,7 @@ export default function Markets({ farmer, onLogout }) {
 
         setMarkets(marketList);
       } catch (error) {
-        console.error('Market fetch failed:', error);
+        if (!ignore) setError(error.response?.data?.message || 'Unable to load market data.');
         setMarkets([]);
       } finally {
         if (!ignore) setLoading(false);
@@ -79,12 +80,15 @@ export default function Markets({ farmer, onLogout }) {
       }
       return 0;
     });
+  const hasSamplePrices = markets.some((market) => market.metadata?.sample === true || /mock|sample|development/i.test(String(market.source || '')));
 
   return (
     <DashboardLayout farmer={farmer} pageTitle="Nearby Markets" onLogout={onLogout}>
       <div className="page-content">
         <h1 className="page-title">Nearby Markets</h1>
         <p className="page-subtitle">Compare prices and distances to find the best market for your produce.</p>
+        {error && <div className="alert alert-error">{error}</div>}
+        {hasSamplePrices && <div className="alert alert-info">Development sample prices are not live market data and are excluded from decision recommendations.</div>}
 
         <div className="markets-filters card" style={{ marginBottom: 24 }}>
           <div className="markets-filter-row">
@@ -156,7 +160,6 @@ export default function Markets({ farmer, onLogout }) {
                 key={market._id || market.marketId}
                 market={market}
                 crop={filterCrop}
-                quantity={100}
                 isRecommended={false}
               />
             ))}

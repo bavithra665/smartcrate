@@ -2,22 +2,22 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   FaLeaf, FaSeedling, FaChartLine, FaStore, FaLightbulb,
-  FaCheckCircle, FaMobileAlt, FaCloudSun, FaRupeeSign, FaArrowRight
+  FaMobileAlt, FaCloudSun, FaRupeeSign, FaArrowRight
 } from 'react-icons/fa';
 import './Landing.css';
 
 const steps = [
   { icon: <FaSeedling />, title: 'Add Harvest', desc: 'Enter your crop details, quantity, and harvest date.' },
-  { icon: <FaChartLine />, title: 'Check Crop Condition', desc: 'Input temperature, humidity, and gas levels for analysis.' },
-  { icon: <FaStore />, title: 'Analyze Market', desc: 'View nearby market prices, distances, and travel times.' },
-  { icon: <FaLightbulb />, title: 'Get Recommendation', desc: 'Receive a clear action: Sell Today, Wait, or Transport.' },
+  { icon: <FaChartLine />, title: 'Receive Sensor Readings', desc: 'Registered devices submit timestamped readings through the backend.' },
+  { icon: <FaStore />, title: 'Review Market Data', desc: 'Compare configured market prices, freshness, and available logistics.' },
+  { icon: <FaLightbulb />, title: 'Review the Decision', desc: 'See a deterministic action only when trusted inputs are available.' },
 ];
 
 const features = [
-  { icon: <FaChartLine />, title: 'Shelf-Life Prediction', desc: 'AI-powered prediction of remaining shelf life based on crop conditions.' },
-  { icon: <FaStore />, title: 'Market Price Comparison', desc: 'Compare prices across nearby markets to maximize your earnings.' },
+  { icon: <FaChartLine />, title: 'Spoilage-Risk Assessment', desc: 'An exploratory classifier reports risk from available sensor features.' },
+  { icon: <FaStore />, title: 'Market Data Comparison', desc: 'Review source-labeled prices; development samples are not live market data.' },
   { icon: <FaLightbulb />, title: 'Smart Recommendations', desc: 'Get clear, actionable selling decisions tailored to your crop.' },
-  { icon: <FaCloudSun />, title: 'Environmental Monitoring', desc: 'Track temperature, humidity, and gas levels affecting your produce.' },
+  { icon: <FaCloudSun />, title: 'Environmental Monitoring', desc: 'Store timestamped sensor readings linked to a harvest batch.' },
   { icon: <FaRupeeSign />, title: 'Profit Optimization', desc: 'Calculate net value after transport costs for each market.' },
   { icon: <FaMobileAlt />, title: 'Mobile Friendly', desc: 'Access SmartCrate from any device, anywhere in the field.' },
 ];
@@ -48,13 +48,13 @@ export default function Landing() {
             <FaLeaf /> Intelligent AgriTech Platform
           </div>
           <h1 className="landing-hero-title">
-            Know Your Crop.<br />Know Your Market.<br />
+            Assess Crop Risk.<br />Compare Market Data.<br />
             <span>Make the Right Decision.</span>
           </h1>
           <p className="landing-hero-desc">
-            SmartCrate helps smallholder farmers predict crop shelf life, assess spoilage risk,
-            and decide the best time and place to sell their harvest — maximizing income and
-            reducing post-harvest losses.
+            SmartCrate connects harvest records, timestamped sensor readings, spoilage-risk assessment,
+            and source-labeled market data. Shelf-life regression remains unavailable until sufficient
+            real longitudinal data has been collected.
           </p>
           <div className="landing-hero-btns">
             <button className="btn btn-primary btn-lg" onClick={() => navigate('/login')}>
@@ -62,23 +62,19 @@ export default function Landing() {
             </button>
           </div>
           <div className="landing-hero-stats">
-            <div className="hero-stat"><span>248+</span><p>Farmers</p></div>
-            <div className="hero-stat"><span>512+</span><p>Harvests Tracked</p></div>
-            <div className="hero-stat"><span>18+</span><p>Markets</p></div>
+            <div className="hero-stat"><span>ESP32</span><p>Sensor ingestion</p></div>
+            <div className="hero-stat"><span>Risk</span><p>Spoilage classification</p></div>
+            <div className="hero-stat"><span>Source</span><p>Market data provenance</p></div>
           </div>
         </div>
         <div className="landing-hero-visual">
           <div className="hero-card-demo">
-            <div className="hero-card-header">
-              <FaSeedling /> Tomato Batch
-            </div>
-            <div className="hero-card-row"><span>Quantity</span><strong>120 kg</strong></div>
-            <div className="hero-card-row"><span>Shelf Life</span><strong>3 Days</strong></div>
-            <div className="hero-card-row"><span>Spoilage Risk</span>
-              <span className="badge badge-medium">Medium</span>
-            </div>
+            <div className="hero-card-header"><FaSeedling /> SmartCrate status</div>
+            <div className="hero-card-row"><span>Spoilage-risk model</span><strong>Exploratory baseline</strong></div>
+            <div className="hero-card-row"><span>Shelf-life model</span><strong>Data collection in progress</strong></div>
+            <div className="hero-card-row"><span>Development market prices</span><strong>Sample only</strong></div>
             <div className="hero-card-rec">
-              <FaLightbulb /> Sell Today
+              <FaLightbulb /> Decisions require trusted inputs
             </div>
           </div>
         </div>
@@ -125,7 +121,7 @@ export default function Landing() {
       <section className="landing-cta">
         <div className="landing-cta-inner">
           <h2>Ready to Maximize Your Harvest Income?</h2>
-          <p>Join hundreds of farmers already using SmartCrate to make smarter selling decisions.</p>
+          <p>Connect a harvest to real sensor readings and review the available decision evidence.</p>
           <button className="btn btn-accent btn-lg" onClick={() => navigate('/login')}>
             Start Using SmartCrate <FaArrowRight />
           </button>
@@ -147,7 +143,7 @@ export default function Landing() {
             <a href="#how">How It Works</a>
           </div>
           <div className="landing-footer-copy">
-            © 2025 SmartCrate. Built for smallholder farmers.
+            © 2026 SmartCrate. Built for smallholder farmers.
           </div>
         </div>
       </footer>

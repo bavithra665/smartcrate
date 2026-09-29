@@ -1,5 +1,5 @@
 const axios = require('axios');
-const Prediction = require('../models/Prediction');
+const prisma = require('../config/prisma');
 const notificationService = require('./notificationService');
 
 const ML_SERVICE_URL = process.env.ML_SERVICE_URL || process.env.ML_API_URL || 'http://localhost:8000';
@@ -129,10 +129,11 @@ const runPrediction = async (harvest, sensorReading, options = {}) => {
     }
   }
 
-  const prediction = await Prediction.create({
-    harvestId: harvest._id,
+  const prediction = await prisma.prediction.create({
+    data: {
+    harvestId: harvest.id,
     farmerId: harvest.farmerId,
-    sensorReadingId: sensorReading._id,
+    sensorReadingId: sensorReading.id,
     ...(shelfLifePrediction && {
       remainingShelfLife: shelfLifePrediction.remaining_shelf_life_days,
       shelfLifeUnit: 'days',
@@ -146,6 +147,7 @@ const runPrediction = async (harvest, sensorReading, options = {}) => {
     modelVersion,
     ...(predictionData.predictionTimestamp && { predictedAt: predictionData.predictionTimestamp }),
     source,
+    },
   });
 
   // Trigger notifications based on prediction

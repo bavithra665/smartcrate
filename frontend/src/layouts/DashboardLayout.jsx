@@ -19,7 +19,6 @@ export default function DashboardLayout({ children, farmer, pageTitle, onLogout 
               title="Notifications"
             >
               <FaBell />
-              <span className="topbar-badge">2</span>
             </button>
             <div className="topbar-avatar" onClick={() => navigate('/profile')}>
               {farmer?.name?.charAt(0) || 'F'}

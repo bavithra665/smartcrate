@@ -1,7 +1,5 @@
-const Harvest = require('../models/Harvest');
-const Prediction = require('../models/Prediction');
-const Recommendation = require('../models/Recommendation');
-const FarmerFeedback = require('../models/FarmerFeedback');
+const prisma = require('../config/prisma');
+const { toApiRecord, toApiRecords, toPrismaData } = require('../utils/apiRecord');
 
 const normalizeFeedbackPayload = (body) => {
   const output = {};
@@ -38,20 +36,20 @@ const normalizeFeedbackPayload = (body) => {
 const submitFeedback = async (req, res, next) => {
   try {
     const { harvestId, predictionId, recommendationId, observedAt } = req.body;
-    const harvest = await Harvest.findOne({ _id: harvestId, farmerId: req.farmer._id });
+    const harvest = await prisma.harvest.findFirst({ where: { id: harvestId, farmerId: req.farmer.id } });
     if (!harvest) {
       return res.status(404).json({ message: 'Harvest not found' });
     }
 
     if (predictionId) {
-      const prediction = await Prediction.findOne({ _id: predictionId, farmerId: req.farmer._id, harvestId });
+      const prediction = await prisma.prediction.findFirst({ where: { id: predictionId, farmerId: req.farmer.id, harvestId } });
       if (!prediction) {
         return res.status(400).json({ message: 'Prediction does not belong to this harvest and farmer' });
       }
     }
 
     if (recommendationId) {
-      const recommendation = await Recommendation.findOne({ _id: recommendationId, farmerId: req.farmer._id, harvestId });
+      const recommendation = await prisma.recommendation.findFirst({ where: { id: recommendationId, farmerId: req.farmer.id, harvestId } });
       if (!recommendation) {
         return res.status(400).json({ message: 'Recommendation does not belong to this harvest and farmer' });
       }
@@ -74,15 +72,17 @@ const submitFeedback = async (req, res, next) => {
     }
 
     const payload = normalizeFeedbackPayload(req.body);
-    const feedback = await FarmerFeedback.create({
-      ...payload,
-      farmerId: req.farmer._id,
-      harvestId,
-      predictionId: payload.predictionId || undefined,
-      recommendationId: payload.recommendationId || undefined,
+    const feedback = await prisma.farmerFeedback.create({
+      data: toPrismaData({
+        ...payload,
+        farmerId: req.farmer.id,
+        harvestId,
+        predictionId: payload.predictionId || undefined,
+        recommendationId: payload.recommendationId || undefined,
+      }),
     });
 
-    res.status(201).json(feedback);
+    res.status(201).json(toApiRecord(feedback));
   } catch (err) {
     next(err);
   }
@@ -91,9 +91,11 @@ const submitFeedback = async (req, res, next) => {
 // GET /api/feedback  (farmer's own feedback)
 const getMyFeedback = async (req, res, next) => {
   try {
-    const feedback = await FarmerFeedback.find({ farmerId: req.farmer._id })
-      .sort({ submittedAt: -1 });
-    res.json(feedback);
+    const feedback = await prisma.farmerFeedback.findMany({
+      where: { farmerId: req.farmer.id },
+      orderBy: { submittedAt: 'desc' },
+    });
+    res.json(toApiRecords(feedback));
   } catch (err) {
     next(err);
   }

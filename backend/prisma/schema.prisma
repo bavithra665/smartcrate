@@ -1,0 +1,464 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider     = "postgresql"
+  relationMode = "prisma"
+}
+
+enum FarmerRole {
+  farmer
+  admin
+}
+
+enum HarvestMaturityStage {
+  Immature
+  Mature
+  Semi_Ripe  @map("Semi-Ripe")
+  Fully_Ripe @map("Fully Ripe")
+  Over_Ripe  @map("Over-Ripe")
+}
+
+enum HarvestStatus {
+  Active
+  Sold
+  Spoiled
+  Archived
+}
+
+enum SensorSource {
+  esp32
+  manual
+  simulator
+}
+
+enum SpoilageRisk {
+  Low
+  Medium
+  High
+}
+
+enum PredictionSource {
+  ml_model
+  rule_based
+  pending
+}
+
+enum RecommendationAction {
+  Sell_Today                  @map("Sell Today")
+  Wait_for_Better_Price       @map("Wait for Better Price")
+  Transport_to_Another_Market @map("Transport to Another Market")
+  Move_Produce_to_Storage     @map("Move Produce to Storage")
+  Insufficient_Data           @map("Insufficient Data")
+}
+
+enum RecommendationDecision {
+  SELL_TODAY
+  WAIT
+  MOVE_PRODUCE
+  INSUFFICIENT_DATA
+}
+
+enum RecommendationStatus {
+  actionable
+  insufficient_data
+}
+
+enum QualityGrade {
+  Excellent
+  Good
+  Fair
+  Poor
+  Unknown
+}
+
+enum SaleabilityStatus {
+  SALEABLE
+  BORDERLINE
+  NOT_SALEABLE
+  UNKNOWN
+}
+
+enum VisibleSpoilage {
+  NONE
+  PARTIAL
+  SEVERE
+  UNKNOWN
+}
+
+enum ObserverSource {
+  farmer
+  field_agent
+  device
+  manual
+  other
+}
+
+enum LabelConfidence {
+  confirmed
+  probable
+  uncertain
+}
+
+enum FeedbackSaleStatus {
+  Sold
+  Not_Sold     @map("Not Sold")
+  Spoiled
+  Stored
+  Discarded
+  Not_Reported @map("Not Reported")
+}
+
+enum SpoilageOutcome {
+  No_Spoilage      @map("No Spoilage")
+  Partial_Spoilage @map("Partial Spoilage")
+  Full_Spoilage    @map("Full Spoilage")
+  Not_Reported     @map("Not Reported")
+}
+
+enum FeedbackQuality {
+  Excellent
+  Good
+  Fair
+  Poor
+  Not_Reported @map("Not Reported")
+}
+
+enum MarketType {
+  APMC
+  Local
+  Wholesale
+  Retail
+  Other
+}
+
+enum PriceUnit {
+  kg
+  quintal
+  tonne
+}
+
+enum NotificationType {
+  warning
+  danger
+  info
+  success
+}
+
+model Farmer {
+  id                  String              @id @map("_id") @db.VarChar(24)
+  name                String
+  mobile              String              @unique @db.VarChar(10)
+  location            String?
+  village             String?
+  district            String?
+  state               String?
+  preferredLanguage   String              @default("English")
+  role                FarmerRole          @default(farmer)
+  isActive            Boolean             @default(true)
+  joinedDate          DateTime            @default(now()) @db.Timestamptz(3)
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @db.Timestamptz(3)
+  version             Int                 @default(0) @map("__v")
+  devices             Device[]
+  harvests            Harvest[]
+  sensorReadings      SensorReading[]
+  predictions         Prediction[]
+  recommendations     Recommendation[]
+  qualityObservations QualityObservation[]
+  feedback            FarmerFeedback[]
+  notifications       Notification[]
+
+  @@map("farmers")
+}
+
+model Device {
+  id         String    @id @map("_id") @db.VarChar(24)
+  deviceId   String    @unique
+  farmerId   String    @db.VarChar(24)
+  apiKeyHash String
+  isActive   Boolean   @default(true)
+  lastSeenAt DateTime? @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @db.Timestamptz(3)
+  version    Int       @default(0) @map("__v")
+  farmer     Farmer    @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([deviceId, isActive])
+  @@index([farmerId])
+  @@map("devices")
+}
+
+model Harvest {
+  id                  String              @id @map("_id") @db.VarChar(24)
+  farmerId            String              @db.VarChar(24)
+  crop                String
+  variety             String?
+  quantity            Float
+  unit                String              @default("kg")
+  initialWeight       Float?
+  harvestDate         DateTime            @db.Timestamptz(3)
+  harvestTime         String?
+  maturityStage       HarvestMaturityStage?
+  storageType         String?
+  storageCondition    String?
+  farmerLocation      String?
+  status              HarvestStatus       @default(Active)
+  notes               String?
+  createdAt           DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt           DateTime            @updatedAt @db.Timestamptz(3)
+  version             Int                 @default(0) @map("__v")
+  farmer              Farmer              @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  sensorReadings      SensorReading[]
+  predictions         Prediction[]
+  recommendations     Recommendation[]
+  qualityObservations QualityObservation[]
+  feedback            FarmerFeedback[]
+  notifications       Notification[]
+
+  @@map("harvests")
+  @@index([farmerId])
+}
+
+model SensorReading {
+  id            String       @id @map("_id") @db.VarChar(24)
+  harvestId     String       @db.VarChar(24)
+  farmerId      String       @db.VarChar(24)
+  temperature   Float?
+  humidity      Float?
+  ethylene      Float?
+  voc           Float?
+  co2           Float?
+  currentWeight Float?
+  source        SensorSource @default(manual)
+  deviceId      String?
+  timestamp     DateTime     @default(now()) @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime     @updatedAt @db.Timestamptz(3)
+  version       Int          @default(0) @map("__v")
+  harvest       Harvest      @relation(fields: [harvestId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  farmer        Farmer       @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  predictions   Prediction[]
+
+  @@index([harvestId, timestamp(sort: Desc)])
+  @@index([farmerId])
+  @@unique([deviceId, timestamp])
+  @@map("sensor_readings")
+}
+
+model Prediction {
+  id                     String             @id @map("_id") @db.VarChar(24)
+  harvestId              String             @db.VarChar(24)
+  farmerId               String             @db.VarChar(24)
+  sensorReadingId        String?            @db.VarChar(24)
+  remainingShelfLife     Float?
+  shelfLifeUnit          String             @default("days")
+  shelfLifeConfidence    Float?
+  shelfLifeModelVersion  String?
+  shelfLifeModelSource   String?
+  shelfLifePredictedAt   DateTime?          @db.Timestamptz(3)
+  spoilageRisk           SpoilageRisk?
+  spoilageRiskConfidence Float?
+  featuresUsed           Json?              @db.JsonB
+  modelVersion           String?
+  predictedAt            DateTime           @default(now()) @db.Timestamptz(3)
+  source                 PredictionSource   @default(pending)
+  createdAt              DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime           @updatedAt @db.Timestamptz(3)
+  version                Int                @default(0) @map("__v")
+  harvest                Harvest            @relation(fields: [harvestId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  farmer                 Farmer             @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  sensorReading          SensorReading?     @relation(fields: [sensorReadingId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recommendations        Recommendation[]
+  feedback               FarmerFeedback[]
+
+  @@index([harvestId, predictedAt(sort: Desc)])
+  @@index([farmerId])
+  @@index([sensorReadingId])
+  @@map("predictions")
+}
+
+model Recommendation {
+  id                 String          @id @map("_id") @db.VarChar(24)
+  harvestId          String          @db.VarChar(24)
+  farmerId           String          @db.VarChar(24)
+  predictionId       String?         @db.VarChar(24)
+  action             RecommendationAction
+  reasons            String[]        @default([])
+  decision           RecommendationDecision?
+  decisionStatus     RecommendationStatus?
+  confidence         Float?
+  marketsConsidered  Json            @default("[]") @db.JsonB
+  bestMarketId       String?         @db.VarChar(24)
+  remainingShelfLife Float?
+  spoilageRisk       String?
+  quantity           Float?
+  shelfLife          Json?           @db.JsonB
+  dataQuality        Json?           @db.JsonB
+  generatedAt        DateTime        @default(now()) @db.Timestamptz(3)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(3)
+  version            Int             @default(0) @map("__v")
+  harvest            Harvest         @relation(fields: [harvestId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  farmer             Farmer          @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  prediction         Prediction?     @relation(fields: [predictionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  bestMarket         Market?         @relation("BestRecommendationMarket", fields: [bestMarketId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  feedback           FarmerFeedback[]
+
+  @@map("recommendations")
+  @@index([harvestId])
+  @@index([farmerId])
+  @@index([predictionId])
+  @@index([bestMarketId])
+}
+
+model QualityObservation {
+  id                         String   @id @map("_id") @db.VarChar(24)
+  harvestId                  String   @db.VarChar(24)
+  farmerId                   String   @db.VarChar(24)
+  qualityGrade               QualityGrade     @default(Unknown)
+  saleabilityStatus          SaleabilityStatus @default(UNKNOWN)
+  visibleSpoilage            VisibleSpoilage  @default(UNKNOWN)
+  firmness                   String?
+  colorRipeness              String?
+  odorNote                   String?
+  observerSource             ObserverSource   @default(farmer)
+  labelConfidence            LabelConfidence  @default(confirmed)
+  observedAt                 DateTime @db.Timestamptz(3)
+  isEndOfSaleableLife        Boolean  @default(false)
+  endOfSaleableLifeTimestamp DateTime? @db.Timestamptz(3)
+  comments                   String?
+  createdAt                  DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime @updatedAt @db.Timestamptz(3)
+  version                    Int      @default(0) @map("__v")
+  harvest                    Harvest  @relation(fields: [harvestId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  farmer                     Farmer   @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([harvestId, observedAt])
+  @@index([harvestId, observedAt(sort: Desc)])
+  @@index([farmerId])
+  @@map("quality_observations")
+}
+
+model FarmerFeedback {
+  id                     String          @id @map("_id") @db.VarChar(24)
+  farmerId               String          @db.VarChar(24)
+  harvestId              String          @db.VarChar(24)
+  predictionId           String?         @db.VarChar(24)
+  recommendationId       String?         @db.VarChar(24)
+  farmerAction           String?
+  actualSaleStatus       FeedbackSaleStatus @default(Not_Reported)
+  actualSellingPrice     Float?
+  actualMarket           String?
+  soldQuantity           Float?
+  spoiledQuantity        Float?
+  actualSpoilageOutcome SpoilageOutcome @default(Not_Reported)
+  actualQuality          FeedbackQuality @default(Not_Reported)
+  recommendationHelpful Boolean?
+  recommendationFollowed Boolean?
+  predictionAccurate     Boolean?
+  observedAt             DateTime        @default(now()) @db.Timestamptz(3)
+  comments               String?
+  submittedAt            DateTime        @default(now()) @db.Timestamptz(3)
+  createdAt              DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime        @updatedAt @db.Timestamptz(3)
+  version                Int             @default(0) @map("__v")
+  farmer                 Farmer          @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  harvest                Harvest         @relation(fields: [harvestId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  prediction             Prediction?     @relation(fields: [predictionId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  recommendation         Recommendation? @relation(fields: [recommendationId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@map("farmer_feedback")
+  @@index([farmerId])
+  @@index([harvestId])
+  @@index([predictionId])
+  @@index([recommendationId])
+}
+
+model Market {
+  id              String          @id @map("_id") @db.VarChar(24)
+  name            String
+  location        String
+  city            String?
+  district        String?
+  state           String?
+  marketType      MarketType      @default(Local)
+  supportedCrops  String[]        @default([])
+  coordinates     Json?           @db.JsonB
+  isActive        Boolean         @default(true)
+  distance        Float?
+  travelTime      String?
+  travelTimeHours Float?
+  transportCost   Float?
+  metadata        Json            @default("{}") @db.JsonB
+  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
+  version         Int             @default(0) @map("__v")
+  prices          MarketPrice[]
+  recommendations Recommendation[] @relation("BestRecommendationMarket")
+
+  @@map("markets")
+}
+
+model MarketPrice {
+  id              String   @id @map("_id") @db.VarChar(24)
+  marketId        String   @db.VarChar(24)
+  crop            String
+  price           Float
+  unit            PriceUnit @default(kg)
+  currency        String   @default("INR")
+  observedAt      DateTime @default(now()) @db.Timestamptz(3)
+  source          String   @default("manual")
+  variety         String?
+  date            DateTime? @db.Timestamptz(3)
+  minPrice        Float?
+  maxPrice        Float?
+  modalPrice      Float?
+  arrivalQuantity Float?
+  metadata        Json     @default("{}") @db.JsonB
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+  version         Int      @default(0) @map("__v")
+  market          Market   @relation(fields: [marketId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([marketId, crop, observedAt(sort: Desc)])
+  @@index([crop, observedAt(sort: Desc)])
+  @@index([marketId])
+  @@map("market_prices")
+}
+
+model Notification {
+  id        String   @id @map("_id") @db.VarChar(24)
+  farmerId  String   @db.VarChar(24)
+  harvestId String?  @db.VarChar(24)
+  type      NotificationType @default(info)
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  channels  Json     @default("{\"inApp\":true,\"sms\":false,\"whatsapp\":false,\"push\":false}") @db.JsonB
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  version   Int      @default(0) @map("__v")
+  farmer    Farmer   @relation(fields: [farmerId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  harvest   Harvest? @relation(fields: [harvestId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([farmerId, read, createdAt(sort: Desc)])
+  @@index([harvestId])
+  @@map("notifications")
+}
+
+model Otp {
+  id        String   @id @map("_id") @db.VarChar(24)
+  mobile    String
+  otp       String
+  expiresAt DateTime @db.Timestamptz(3)
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+  version   Int      @default(0) @map("__v")
+
+  @@index([expiresAt])
+  @@index([mobile, used])
+  @@map("otps")
+}

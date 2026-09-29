@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const Farmer = require('../models/Farmer');
+const prisma = require('../config/prisma');
 
 const protect = async (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -7,13 +7,20 @@ const protect = async (req, res, next) => {
     return res.status(401).json({ message: 'Not authorized, no token' });
   }
   const token = authHeader.split(' ')[1];
+  let decoded;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.farmer = await Farmer.findById(decoded.id).select('-__v');
-    if (!req.farmer) return res.status(401).json({ message: 'Farmer not found' });
-    next();
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
   } catch {
     return res.status(401).json({ message: 'Not authorized, invalid token' });
+  }
+
+  try {
+    const farmer = await prisma.farmer.findUnique({ where: { id: decoded.id } });
+    if (!farmer || farmer.isActive === false) return res.status(401).json({ message: 'Farmer account is inactive or unavailable' });
+    req.farmer = { ...farmer, _id: farmer.id };
+    next();
+  } catch (error) {
+    next(error);
   }
 };
 

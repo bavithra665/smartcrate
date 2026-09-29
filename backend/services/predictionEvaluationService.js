@@ -1,8 +1,5 @@
-const Prediction = require('../models/Prediction');
-const FarmerFeedback = require('../models/FarmerFeedback');
-const Harvest = require('../models/Harvest');
-const SensorReading = require('../models/SensorReading');
-const QualityObservation = require('../models/QualityObservation');
+const prisma = require('../config/prisma');
+const { toApiRecords } = require('../utils/apiRecord');
 
 const MINIMUM_EVALUATION_SAMPLES = 2;
 const BINARY_LABELS = ['NO_SPOILAGE', 'SPOILAGE'];
@@ -367,14 +364,14 @@ const prepareRow = ({ prediction, harvest, sensor, feedback }) => {
 
 const evaluatePredictions = async () => {
   const [predictions, feedbackRecords] = await Promise.all([
-    Prediction.find({}),
-    FarmerFeedback.find({}),
+    prisma.prediction.findMany().then(toApiRecords),
+    prisma.farmerFeedback.findMany().then(toApiRecords),
   ]);
   const harvestIds = [...new Set(predictions.map((prediction) => asKey(prediction.harvestId)).filter(Boolean))];
   const predictionIds = predictions.map((prediction) => prediction._id).filter(Boolean);
   const [harvests, sensors] = await Promise.all([
-    harvestIds.length ? Harvest.find({ _id: { $in: harvestIds } }) : [],
-    predictionIds.length ? SensorReading.find({}) : [],
+    harvestIds.length ? prisma.harvest.findMany({ where: { id: { in: harvestIds } } }).then(toApiRecords) : [],
+    predictionIds.length ? prisma.sensorReading.findMany().then(toApiRecords) : [],
   ]);
   const harvestById = new Map(harvests.map((harvest) => [asKey(harvest._id), harvest]));
   const sensorById = new Map(sensors.map((sensor) => [asKey(sensor._id), sensor]));
@@ -450,10 +447,10 @@ const evaluatePredictions = async () => {
 const getDataQualityReport = async () => {
   const result = await evaluatePredictions();
   const [harvests, feedbackRecords, sensors, qualityObservations] = await Promise.all([
-    Harvest.find({}),
-    FarmerFeedback.find({}),
-    SensorReading.find({}),
-    QualityObservation.find({}),
+    prisma.harvest.findMany().then(toApiRecords),
+    prisma.farmerFeedback.findMany().then(toApiRecords),
+    prisma.sensorReading.findMany().then(toApiRecords),
+    prisma.qualityObservation.findMany().then(toApiRecords),
   ]);
   const shelfLifeAudit = auditShelfLifeReadiness({
     harvests,
@@ -527,9 +524,9 @@ const getDataQualityReport = async () => {
 const prepareMlData = async () => {
   const result = await evaluatePredictions();
   const [harvests, sensors, qualityObservations] = await Promise.all([
-    Harvest.find({}),
-    SensorReading.find({}),
-    QualityObservation.find({}),
+    prisma.harvest.findMany().then(toApiRecords),
+    prisma.sensorReading.findMany().then(toApiRecords),
+    prisma.qualityObservation.findMany().then(toApiRecords),
   ]);
   const shelfLifeReadiness = auditShelfLifeReadiness({ harvests, sensorReadings: sensors, qualityObservations });
   return {

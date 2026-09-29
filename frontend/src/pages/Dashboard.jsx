@@ -41,6 +41,7 @@ export default function Dashboard({ farmer, onLogout }) {
     return () => { mounted = false; };
   }, []);
 
+  const riskDataAvailable = activeHarvests.some((harvest) => ['Low', 'Medium', 'High'].includes(harvest.spoilageRisk));
   const highRisk = activeHarvests.filter(h => h.spoilageRisk === 'High').length;
   const medRisk = activeHarvests.filter(h => h.spoilageRisk === 'Medium').length;
   const lowRisk = activeHarvests.filter(h => h.spoilageRisk === 'Low').length;
@@ -52,7 +53,7 @@ export default function Dashboard({ farmer, onLogout }) {
         <div className="dashboard-welcome">
           <div>
             <h1 className="page-title">Welcome back, {farmer?.name?.split(' ')[0] || 'Farmer'}! 👋</h1>
-            <p className="page-subtitle">Here's an overview of your harvest and market status today.</p>
+            <p className="page-subtitle">Overview of your recorded harvests and available sensor-generated risk assessments.</p>
           </div>
           <button className="btn btn-primary" onClick={() => navigate('/add-harvest')}>
             <FaSeedling /> Add New Harvest
@@ -70,21 +71,21 @@ export default function Dashboard({ farmer, onLogout }) {
           />
           <DashboardCard
             title="High Risk Batches"
-            value={highRisk}
+            value={riskDataAvailable ? highRisk : 'Unavailable'}
             subtitle="Require immediate action"
             icon={<FaExclamationTriangle />}
             color="var(--risk-high)"
           />
           <DashboardCard
             title="Medium Risk"
-            value={medRisk}
+            value={riskDataAvailable ? medRisk : 'Unavailable'}
             subtitle="Monitor closely"
             icon={<FaClock />}
             color="var(--risk-medium)"
           />
           <DashboardCard
             title="Safe Batches"
-            value={lowRisk}
+            value={riskDataAvailable ? lowRisk : 'Unavailable'}
             subtitle="Good condition"
             icon={<FaCheckCircle />}
             color="var(--risk-low)"

@@ -1,14 +1,14 @@
 process.env.NODE_ENV = 'test';
 
-jest.mock('../models/Prediction', () => ({ find: jest.fn() }));
-jest.mock('../models/FarmerFeedback', () => ({ find: jest.fn() }));
-jest.mock('../models/Harvest', () => ({ find: jest.fn() }));
-jest.mock('../models/SensorReading', () => ({ find: jest.fn() }));
+jest.mock('../config/prisma', () => ({
+  prediction: { findMany: jest.fn() },
+  farmerFeedback: { findMany: jest.fn() },
+  harvest: { findMany: jest.fn() },
+  sensorReading: { findMany: jest.fn() },
+  qualityObservation: { findMany: jest.fn() },
+}));
 
-const Prediction = require('../models/Prediction');
-const FarmerFeedback = require('../models/FarmerFeedback');
-const Harvest = require('../models/Harvest');
-const SensorReading = require('../models/SensorReading');
+const prisma = require('../config/prisma');
 const {
   calculateBinaryMetrics,
   evaluatePredictions,
@@ -17,7 +17,7 @@ const {
 const farmerId = 'farmer-1';
 const harvestId = 'harvest-1';
 const prediction = (overrides = {}) => ({
-  _id: 'prediction-1',
+  id: 'prediction-1',
   farmerId,
   harvestId,
   sensorReadingId: 'sensor-1',
@@ -30,7 +30,7 @@ const prediction = (overrides = {}) => ({
 });
 
 const feedback = (overrides = {}) => ({
-  _id: 'feedback-1',
+  id: 'feedback-1',
   farmerId,
   harvestId,
   predictionId: 'prediction-1',
@@ -41,13 +41,13 @@ const feedback = (overrides = {}) => ({
 
 beforeEach(() => {
   jest.clearAllMocks();
-  Harvest.find.mockResolvedValue([{ _id: harvestId, crop: 'Tomato', quantity: 10 }]);
-  SensorReading.find.mockResolvedValue([{ _id: 'sensor-1', timestamp: new Date('2026-09-20T09:00:00Z'), temperature: 30 }]);
+  prisma.harvest.findMany.mockResolvedValue([{ id: harvestId, crop: 'Tomato', quantity: 10 }]);
+  prisma.sensorReading.findMany.mockResolvedValue([{ id: 'sensor-1', timestamp: new Date('2026-09-20T09:00:00Z'), temperature: 30 }]);
 });
 
 test('prediction with no feedback is unevaluated', async () => {
-  Prediction.find.mockResolvedValue([prediction()]);
-  FarmerFeedback.find.mockResolvedValue([]);
+  prisma.prediction.findMany.mockResolvedValue([prediction()]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([]);
 
   const result = await evaluatePredictions();
 
@@ -58,8 +58,8 @@ test('prediction with no feedback is unevaluated', async () => {
 });
 
 test('prediction with valid explicit feedback is evaluable', async () => {
-  Prediction.find.mockResolvedValue([prediction()]);
-  FarmerFeedback.find.mockResolvedValue([feedback()]);
+  prisma.prediction.findMany.mockResolvedValue([prediction()]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([feedback()]);
 
   const result = await evaluatePredictions();
 
@@ -69,8 +69,8 @@ test('prediction with valid explicit feedback is evaluable', async () => {
 });
 
 test('incomplete feedback remains unevaluated', async () => {
-  Prediction.find.mockResolvedValue([prediction()]);
-  FarmerFeedback.find.mockResolvedValue([feedback({ actualSpoilageOutcome: 'Not Reported' })]);
+  prisma.prediction.findMany.mockResolvedValue([prediction()]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([feedback({ actualSpoilageOutcome: 'Not Reported' })]);
 
   const result = await evaluatePredictions();
 
@@ -79,8 +79,8 @@ test('incomplete feedback remains unevaluated', async () => {
 });
 
 test('feedback from another farmer is excluded', async () => {
-  Prediction.find.mockResolvedValue([prediction()]);
-  FarmerFeedback.find.mockResolvedValue([feedback({ farmerId: 'farmer-2' })]);
+  prisma.prediction.findMany.mockResolvedValue([prediction()]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([feedback({ farmerId: 'farmer-2' })]);
 
   const result = await evaluatePredictions();
 
@@ -89,9 +89,9 @@ test('feedback from another farmer is excluded', async () => {
 });
 
 test('harvest owned by another farmer is excluded', async () => {
-  Prediction.find.mockResolvedValue([prediction()]);
-  FarmerFeedback.find.mockResolvedValue([feedback()]);
-  Harvest.find.mockResolvedValue([{ _id: harvestId, farmerId: 'farmer-2', crop: 'Tomato', quantity: 10 }]);
+  prisma.prediction.findMany.mockResolvedValue([prediction()]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([feedback()]);
+  prisma.harvest.findMany.mockResolvedValue([{ id: harvestId, farmerId: 'farmer-2', crop: 'Tomato', quantity: 10 }]);
 
   const result = await evaluatePredictions();
 
@@ -100,13 +100,13 @@ test('harvest owned by another farmer is excluded', async () => {
 });
 
 test('model versions and rule-based sources remain separate', async () => {
-  Prediction.find.mockResolvedValue([
+  prisma.prediction.findMany.mockResolvedValue([
     prediction(),
-    prediction({ _id: 'prediction-2', source: 'rule_based', modelVersion: 'rule_based_v1' }),
+    prediction({ id: 'prediction-2', source: 'rule_based', modelVersion: 'rule_based_v1' }),
   ]);
-  FarmerFeedback.find.mockResolvedValue([
+  prisma.farmerFeedback.findMany.mockResolvedValue([
     feedback(),
-    feedback({ _id: 'feedback-2', predictionId: 'prediction-2' }),
+    feedback({ id: 'feedback-2', predictionId: 'prediction-2' }),
   ]);
 
   const result = await evaluatePredictions();
@@ -145,8 +145,8 @@ test('evaluation does not mutate prediction or feedback records', async () => {
   const originalFeedback = feedback();
   const predictionSnapshot = JSON.stringify(originalPrediction);
   const feedbackSnapshot = JSON.stringify(originalFeedback);
-  Prediction.find.mockResolvedValue([originalPrediction]);
-  FarmerFeedback.find.mockResolvedValue([originalFeedback]);
+  prisma.prediction.findMany.mockResolvedValue([originalPrediction]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([originalFeedback]);
 
   await evaluatePredictions();
 
@@ -155,8 +155,8 @@ test('evaluation does not mutate prediction or feedback records', async () => {
 });
 
 test('shelf-life evaluation remains unavailable without an endpoint timestamp', async () => {
-  Prediction.find.mockResolvedValue([prediction()]);
-  FarmerFeedback.find.mockResolvedValue([feedback()]);
+  prisma.prediction.findMany.mockResolvedValue([prediction()]);
+  prisma.farmerFeedback.findMany.mockResolvedValue([feedback()]);
 
   const result = await evaluatePredictions();
 

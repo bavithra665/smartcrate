@@ -45,12 +45,14 @@ export default function NotificationCard({ notification, onMarkRead }) {
           {notification.message}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <span style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>{notification.time}</span>
+          <span style={{ fontSize: '0.78rem', color: 'var(--text-light)' }}>
+            {notification.createdAt ? new Date(notification.createdAt).toLocaleString() : 'Time unavailable'}
+          </span>
           {!notification.read && onMarkRead && (
             <button
               className="btn btn-outline btn-sm"
               style={{ padding: '2px 10px', fontSize: '0.75rem' }}
-              onClick={() => onMarkRead(notification.id)}
+              onClick={() => onMarkRead(notification._id || notification.id)}
             >
               Mark as Read
             </button>

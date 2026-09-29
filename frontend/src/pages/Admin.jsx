@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import DashboardCard from '../components/DashboardCard';
-import { mockAdminStats } from '../data/mockData';
-import { getPredictionEvaluation } from '../api/adminApi';
+import { getAdminStats, getMlDataReadiness, getPredictionEvaluation } from '../api/adminApi';
 import {
-  FaUsers, FaSeedling, FaLeaf, FaExclamationTriangle, FaStore, FaClock
+  FaUsers, FaSeedling, FaLeaf, FaExclamationTriangle, FaMicrochip, FaChartLine
 } from 'react-icons/fa';
 import { Doughnut, Bar } from 'react-chartjs-2';
 import {
@@ -16,13 +15,21 @@ import './Admin.css';
 ChartJS.register(ArcElement, Tooltip, Legend, CategoryScale, LinearScale, BarElement, Title);
 
 export default function Admin({ farmer, onLogout }) {
-  const stats = mockAdminStats;
+  const [stats, setStats] = useState(null);
+  const [statsError, setStatsError] = useState('');
+  const [statsLoading, setStatsLoading] = useState(true);
   const [evaluation, setEvaluation] = useState(null);
   const [evaluationError, setEvaluationError] = useState('');
   const [evaluationLoading, setEvaluationLoading] = useState(true);
+  const [readiness, setReadiness] = useState(null);
+  const [readinessError, setReadinessError] = useState('');
 
   useEffect(() => {
     let mounted = true;
+    getAdminStats()
+      .then((response) => { if (mounted) setStats(response.data); })
+      .catch((error) => { if (mounted) setStatsError(error.response?.data?.message || 'Unable to load admin statistics.'); })
+      .finally(() => { if (mounted) setStatsLoading(false); });
     getPredictionEvaluation()
       .then((response) => {
         if (mounted) setEvaluation(response.data);
@@ -33,23 +40,28 @@ export default function Admin({ farmer, onLogout }) {
       .finally(() => {
         if (mounted) setEvaluationLoading(false);
       });
+    getMlDataReadiness()
+      .then((response) => { if (mounted) setReadiness(response.data); })
+      .catch((error) => { if (mounted) setReadinessError(error.response?.data?.message || 'Unable to load shelf-life readiness.'); });
     return () => { mounted = false; };
   }, []);
 
+  const cropDistribution = stats?.cropDistribution || [];
+  const riskDistribution = stats?.riskDistribution || [];
   const cropChartData = {
-    labels: stats.cropDistribution.map(c => c.crop),
+    labels: cropDistribution.map(c => c.crop),
     datasets: [{
-      data: stats.cropDistribution.map(c => c.count),
+      data: cropDistribution.map(c => c.count),
       backgroundColor: ['#2d7a3a', '#4caf50', '#81c784', '#a5d6a7', '#c8e6c9', '#e8f5e9'],
       borderWidth: 0,
     }],
   };
 
   const riskChartData = {
-    labels: stats.riskDistribution.map(r => r.risk),
+    labels: riskDistribution.map(r => r.risk),
     datasets: [{
       label: 'Batches',
-      data: stats.riskDistribution.map(r => r.count),
+      data: riskDistribution.map(r => r.count),
       backgroundColor: ['#38a169', '#dd6b20', '#e53e3e'],
       borderRadius: 6,
       borderWidth: 0,
@@ -68,6 +80,7 @@ export default function Admin({ farmer, onLogout }) {
     scales: { y: { beginAtZero: true } },
     maintainAspectRatio: false,
   };
+  const statValue = (field) => statsLoading ? 'Loading' : statsError ? 'Unavailable' : stats?.[field] ?? 0;
 
   return (
     <DashboardLayout farmer={farmer} pageTitle="Admin Dashboard" onLogout={onLogout}>
@@ -77,24 +90,39 @@ export default function Admin({ farmer, onLogout }) {
           <span className="badge badge-info">Admin View</span>
         </div>
         <p className="page-subtitle">Platform overview and monitoring statistics.</p>
+        {statsError && <div className="alert alert-error">{statsError}</div>}
 
-        {/* Stats */}
         <div className="grid-4" style={{ marginBottom: 28 }}>
-          <DashboardCard title="Total Farmers" value={stats.totalFarmers}
-            subtitle="Registered on platform" icon={<FaUsers />} color="var(--primary)" />
-          <DashboardCard title="Active Harvests" value={stats.activeHarvests}
+          <DashboardCard title="Total Farmers" value={statValue('totalFarmers')}
+            subtitle="Registered farmer accounts" icon={<FaUsers />} color="var(--primary)" />
+          <DashboardCard title="Active Harvests" value={statValue('activeHarvests')}
             subtitle="Currently monitored" icon={<FaSeedling />} color="#2b6cb0" />
-          <DashboardCard title="Crops Monitored" value={stats.cropsMonitored}
-            subtitle="Different crop types" icon={<FaLeaf />} color="#6b46c1" />
-          <DashboardCard title="High Risk Batches" value={stats.highRiskBatches}
-            subtitle="Require immediate action" icon={<FaExclamationTriangle />} color="var(--risk-high)" />
+          <DashboardCard title="Sensor Readings" value={statValue('totalSensorReadings')}
+            subtitle="Stored observations" icon={<FaMicrochip />} color="#6b46c1" />
+          <DashboardCard title="High-Risk Predictions" value={statValue('highRiskCount')}
+            subtitle="Stored classifier outputs" icon={<FaExclamationTriangle />} color="var(--risk-high)" />
         </div>
 
         <div className="grid-2" style={{ marginBottom: 28 }}>
-          <DashboardCard title="Total Markets" value={stats.totalMarkets}
-            subtitle="Registered markets" icon={<FaStore />} color="var(--risk-medium)" />
-          <DashboardCard title="Avg. Shelf Life" value="7.2 Days"
-            subtitle="Across all active batches" icon={<FaClock />} color="var(--primary)" />
+          <DashboardCard title="Total Harvests" value={statValue('totalHarvests')}
+            subtitle="All recorded batches" icon={<FaLeaf />} color="var(--primary)" />
+          <DashboardCard title="Total Predictions" value={statValue('totalPredictions')}
+            subtitle="Stored spoilage-risk results" icon={<FaChartLine />} color="var(--risk-medium)" />
+        </div>
+
+        <div className="card admin-evaluation-card" style={{ marginBottom: 28 }}>
+          <div className="section-title">Shelf-Life Model Readiness</div>
+          {readinessError ? <div className="alert alert-error">{readinessError}</div> : readiness ? (
+            <>
+              <p>{readiness.shelfLifeRegressionTrainingJustified ? 'Ready for regression training' : 'Shelf-life model: Data collection in progress'}</p>
+              <div className="grid-4 admin-evaluation-stats">
+                <div><strong>{readiness.validShelfLifeTrainingRows ?? 0}/{readiness.minimumValidTrainingRows ?? 30}</strong><span>Valid labeled rows</span></div>
+                <div><strong>{readiness.distinctTrainingBatches ?? 0}/{readiness.minimumDistinctHarvestBatches ?? 10}</strong><span>Distinct harvest batches</span></div>
+                <div><strong>{readiness.censoredBatches ?? 0}</strong><span>Censored batches</span></div>
+                <div><strong>{readiness.unknownEndpointBatches ?? 0}</strong><span>Unknown endpoints</span></div>
+              </div>
+            </>
+          ) : <div className="empty-state">Loading shelf-life readiness...</div>}
         </div>
 
         <div className="card admin-evaluation-card" style={{ marginBottom: 28 }}>
@@ -124,49 +152,32 @@ export default function Admin({ farmer, onLogout }) {
         </div>
 
         {/* Charts */}
-        <div className="admin-charts">
-          <div className="card">
-            <div className="section-title" style={{ marginBottom: 16 }}>Crop Distribution</div>
-            <div style={{ height: 260 }}>
-              <Doughnut data={cropChartData} options={chartOptions} />
+        {!statsError && !statsLoading && (
+          <div className="admin-charts">
+            <div className="card">
+              <div className="section-title" style={{ marginBottom: 16 }}>Crop Distribution</div>
+              {cropDistribution.length ? <div style={{ height: 260 }}>
+                <Doughnut data={cropChartData} options={chartOptions} />
+              </div> : <div className="empty-state">No harvest data available.</div>}
+            </div>
+            <div className="card">
+              <div className="section-title" style={{ marginBottom: 16 }}>Risk Distribution</div>
+              {riskDistribution.length ? <div style={{ height: 260 }}>
+                <Bar data={riskChartData} options={barOptions} />
+              </div> : <div className="empty-state">No prediction data available.</div>}
             </div>
           </div>
-          <div className="card">
-            <div className="section-title" style={{ marginBottom: 16 }}>Risk Distribution</div>
-            <div style={{ height: 260 }}>
-              <Bar data={riskChartData} options={barOptions} />
-            </div>
-          </div>
-        </div>
+        )}
 
-        {/* Recent Activity */}
-        <div className="card" style={{ marginTop: 24 }}>
-          <div className="section-title" style={{ marginBottom: 16 }}>Recent Activity</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-            {stats.recentActivity.map((a, i) => (
-              <div key={i} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '12px 0', borderBottom: i < stats.recentActivity.length - 1 ? '1px solid var(--border)' : 'none'
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: '50%',
-                    background: 'var(--primary-bg)', color: 'var(--primary)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontWeight: 800, fontSize: '0.9rem', flexShrink: 0
-                  }}>
-                    {a.farmer.charAt(0)}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--text-dark)' }}>{a.farmer}</div>
-                    <div style={{ fontSize: '0.82rem', color: 'var(--text-light)' }}>{a.action}</div>
-                  </div>
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-light)', flexShrink: 0 }}>{a.time}</div>
-              </div>
-            ))}
-          </div>
-        </div>
+        {stats?.recentFarmers?.length > 0 && <div className="card" style={{ marginTop: 24 }}>
+          <div className="section-title" style={{ marginBottom: 16 }}>Recently Registered Farmers</div>
+          {stats.recentFarmers.map((recentFarmer) => (
+            <div key={recentFarmer._id} className="summary-item">
+              <span>{recentFarmer.name}</span>
+              <strong>{recentFarmer.createdAt ? new Date(recentFarmer.createdAt).toLocaleDateString() : 'Date unavailable'}</strong>
+            </div>
+          ))}
+        </div>}
       </div>
     </DashboardLayout>
   );

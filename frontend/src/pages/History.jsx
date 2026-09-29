@@ -104,7 +104,12 @@ export default function History({ farmer, onLogout }) {
                     <td style={{ fontWeight: 600 }}>{h.crop}</td>
                     <td>{h.quantity} kg</td>
                     <td>{h.harvestDate}</td>
-                    <td>{h.predictedShelfLife ? `${h.predictedShelfLife} days` : '--'}</td>
+                    <td>{typeof h.remainingShelfLife === 'number'
+                      && Number.isFinite(h.remainingShelfLife)
+                      && h.shelfLifeModelVersion
+                      && h.shelfLifeModelSource
+                      ? `${h.remainingShelfLife} days`
+                      : 'Shelf-life model: Data collection in progress'}</td>
                     <td>{h.spoilageRisk ? <RiskBadge risk={h.spoilageRisk} /> : <span className="badge badge-info">Pending</span>}</td>
                     <td>{h.marketSold || '--'}</td>
                     <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{h.sellingPrice ? `₹${h.sellingPrice}` : '--'}</td>

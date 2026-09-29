@@ -116,7 +116,7 @@ export default function Profile({ farmer, onUpdateFarmer, onLogout }) {
             <span className="badge badge-success">Active Farmer</span>
             <hr className="divider" />
             <div style={{ fontSize: '0.8rem', color: 'var(--text-light)' }}>
-              Member since {form.joinedDate || '2024'}
+              Member since {form.joinedDate ? new Date(form.joinedDate).toLocaleDateString() : 'Date unavailable'}
             </div>
           </div>
 

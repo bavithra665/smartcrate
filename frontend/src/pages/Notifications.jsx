@@ -1,18 +1,39 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import DashboardLayout from '../layouts/DashboardLayout';
 import NotificationCard from '../components/NotificationCard';
-import { mockNotifications } from '../data/mockData';
+import { getNotifications, markAllNotificationsRead, markNotificationRead } from '../api/notificationApi';
 import { FaBell, FaCheckDouble } from 'react-icons/fa';
 
 export default function Notifications({ farmer, onLogout }) {
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const [notifications, setNotifications] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const markRead = (id) => {
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  useEffect(() => {
+    let mounted = true;
+    getNotifications()
+      .then((response) => { if (mounted) setNotifications(response.data || []); })
+      .catch((apiError) => { if (mounted) setError(apiError.response?.data?.message || 'Unable to load notifications.'); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
+  }, []);
+
+  const markRead = async (id) => {
+    try {
+      const response = await markNotificationRead(id);
+      setNotifications((previous) => previous.map((item) => (item._id || item.id) === id ? response.data : item));
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || 'Unable to update notification.');
+    }
   };
 
-  const markAllRead = () => {
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+  const markAllRead = async () => {
+    try {
+      await markAllNotificationsRead();
+      setNotifications((previous) => previous.map((item) => ({ ...item, read: true })));
+    } catch (apiError) {
+      setError(apiError.response?.data?.message || 'Unable to update notifications.');
+    }
   };
 
   const unread = notifications.filter(n => !n.read).length;
@@ -34,7 +55,8 @@ export default function Notifications({ farmer, onLogout }) {
           )}
         </div>
 
-        {notifications.length === 0 ? (
+        {error && <div className="alert alert-error">{error}</div>}
+        {loading ? <div className="empty-state">Loading notifications...</div> : notifications.length === 0 ? (
           <div className="empty-state">
             <FaBell />
             <p>No notifications yet.</p>

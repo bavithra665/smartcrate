@@ -1,7 +1,7 @@
-const Notification = require('../models/Notification');
+const prisma = require('../config/prisma');
 
 const create = async (farmerId, harvestId, type, title, message) => {
-  return Notification.create({ farmerId, harvestId, type, title, message });
+  return prisma.notification.create({ data: { farmerId, harvestId, type, title, message } });
 };
 
 /**
@@ -9,7 +9,7 @@ const create = async (farmerId, harvestId, type, title, message) => {
  * Creates relevant in-app notifications.
  */
 const createPredictionNotifications = async (harvest, prediction) => {
-  const { farmerId, _id: harvestId, crop } = harvest;
+  const { farmerId, id: harvestId, crop } = harvest;
   const { spoilageRisk, remainingShelfLife } = prediction;
 
   if (spoilageRisk === 'High') {

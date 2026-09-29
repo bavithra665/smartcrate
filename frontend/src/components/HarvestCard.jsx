@@ -1,7 +1,6 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import RiskBadge from './RiskBadge';
-import ProgressBar from './ProgressBar';
 import { FaSeedling, FaWeight, FaCalendarAlt, FaArrowRight } from 'react-icons/fa';
 
 export default function HarvestCard({ harvest }) {
@@ -55,11 +54,12 @@ export default function HarvestCard({ harvest }) {
         <div style={{ fontSize: '0.82rem', color: 'var(--text-medium)', marginBottom: 6, fontWeight: 600 }}>
           Remaining Shelf Life
         </div>
-        {typeof harvest.remainingShelfLife === 'number' && typeof harvest.predictedShelfLife === 'number' ? (
-          <ProgressBar value={harvest.remainingShelfLife} max={harvest.predictedShelfLife} />
-        ) : (
-          <div className="badge badge-info">Prediction pending</div>
-        )}
+        {typeof harvest.remainingShelfLife === 'number'
+          && Number.isFinite(harvest.remainingShelfLife)
+          && harvest.shelfLifeModelVersion
+          && harvest.shelfLifeModelSource
+          ? <div>{harvest.remainingShelfLife} days</div>
+          : <div className="badge badge-info">Shelf-life model: Data collection in progress</div>}
       </div>
 
       <div style={{

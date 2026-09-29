@@ -5,19 +5,17 @@ process.env.ML_SERVICE_TIMEOUT_MS = '4321';
 jest.mock('axios', () => ({
   post: jest.fn(),
 }));
-jest.mock('../models/Prediction', () => ({
-  create: jest.fn(),
-}));
+jest.mock('../config/prisma', () => ({ prediction: { create: jest.fn() } }));
 jest.mock('../services/notificationService', () => ({
   createPredictionNotifications: jest.fn().mockResolvedValue(null),
 }));
 
 const axios = require('axios');
-const Prediction = require('../models/Prediction');
+const prisma = require('../config/prisma');
 const predictionService = require('../services/predictionService');
 
 const harvest = {
-  _id: 'harvest-1',
+  id: 'harvest-1',
   farmerId: 'farmer-1',
   crop: 'Tomato',
   maturityStage: 'Fully Ripe',
@@ -25,7 +23,7 @@ const harvest = {
   harvestTime: '06:30',
 };
 const sensorReading = {
-  _id: 'reading-1',
+  id: 'reading-1',
   timestamp: new Date('2026-09-26T06:30:00.000Z'),
   temperature: 25.5,
   humidity: 60,
@@ -44,7 +42,7 @@ const mlResponse = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  Prediction.create.mockImplementation(async (value) => value);
+  prisma.prediction.create.mockImplementation(async ({ data }) => ({ id: 'prediction-1', ...data }));
 });
 
 test('sends the exact ML feature contract and stores the ML result', async () => {
@@ -66,7 +64,7 @@ test('sends the exact ML feature contract and stores the ML result', async () =>
     },
     { timeout: 4321 }
   );
-  expect(Prediction.create).toHaveBeenCalledWith(expect.objectContaining({
+  expect(prisma.prediction.create).toHaveBeenCalledWith({ data: expect.objectContaining({
     harvestId: 'harvest-1',
     farmerId: 'farmer-1',
     sensorReadingId: 'reading-1',
@@ -74,8 +72,8 @@ test('sends the exact ML feature contract and stores the ML result', async () =>
     spoilageRiskConfidence: 0.7,
     modelVersion: 'spoilage_risk_baseline',
     source: 'ml_model',
-  }));
-  expect(Prediction.create.mock.calls[0][0]).not.toHaveProperty('remainingShelfLife');
+  }) });
+  expect(prisma.prediction.create.mock.calls[0][0].data).not.toHaveProperty('remainingShelfLife');
   expect(result.source).toBe('ml_model');
 });
 
@@ -92,11 +90,11 @@ test('uses the existing rule-based spoilage fallback without fabricating shelf l
   const result = await predictionService.runPrediction(harvest, sensorReading);
 
   expect(result.source).toBe('rule_based');
-  expect(Prediction.create).toHaveBeenCalledWith(expect.objectContaining({
+  expect(prisma.prediction.create).toHaveBeenCalledWith({ data: expect.objectContaining({
     source: 'rule_based',
     modelVersion: 'rule_based_v1',
-  }));
-  expect(Prediction.create.mock.calls[0][0]).not.toHaveProperty('remainingShelfLife');
+  }) });
+  expect(prisma.prediction.create.mock.calls[0][0].data).not.toHaveProperty('remainingShelfLife');
 });
 
 test('keeps spoilage prediction when FastAPI reports shelf-life model not ready', async () => {
@@ -122,8 +120,8 @@ test('keeps spoilage prediction when FastAPI reports shelf-life model not ready'
     { timeout: 4321 }
   );
   expect(result.spoilageRisk).toBe('Medium');
-  expect(Prediction.create.mock.calls[0][0]).not.toHaveProperty('remainingShelfLife');
-  expect(Prediction.create.mock.calls[0][0]).toEqual(expect.objectContaining({ modelVersion: 'spoilage_risk_baseline' }));
+  expect(prisma.prediction.create.mock.calls[0][0].data).not.toHaveProperty('remainingShelfLife');
+  expect(prisma.prediction.create.mock.calls[0][0].data).toEqual(expect.objectContaining({ modelVersion: 'spoilage_risk_baseline' }));
 });
 
 test('stores shelf life only with validated model provenance', async () => {
@@ -140,13 +138,13 @@ test('stores shelf life only with validated model provenance', async () => {
 
   await predictionService.runPrediction(harvest, sensorReading);
 
-  expect(Prediction.create).toHaveBeenCalledWith(expect.objectContaining({
+  expect(prisma.prediction.create).toHaveBeenCalledWith({ data: expect.objectContaining({
     remainingShelfLife: 3.5,
     shelfLifeModelVersion: 'shelf_life_regression_v1',
     shelfLifeModelSource: 'longitudinal_regression',
     shelfLifePredictedAt: new Date('2026-09-26T06:30:00.000Z'),
     modelVersion: 'spoilage_risk_baseline',
-  }));
+  }) });
 });
 
 test('does not convert an ML validation response into a fallback prediction', async () => {
@@ -154,7 +152,7 @@ test('does not convert an ML validation response into a fallback prediction', as
 
   await expect(predictionService.runPrediction(harvest, sensorReading))
     .rejects.toThrow('ML service rejected prediction input: 422');
-  expect(Prediction.create).not.toHaveBeenCalled();
+  expect(prisma.prediction.create).not.toHaveBeenCalled();
 });
 
 test('rejects invalid or future harvest timestamps without calling ML', async () => {

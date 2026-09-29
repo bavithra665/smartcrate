@@ -1,5 +1,5 @@
-const Harvest = require('../models/Harvest');
-const QualityObservation = require('../models/QualityObservation');
+const prisma = require('../config/prisma');
+const { toApiRecord, toApiRecords, toPrismaData } = require('../utils/apiRecord');
 
 const harvestUpdateFields = [
   'crop', 'variety', 'quantity', 'unit', 'initialWeight',
@@ -16,16 +16,18 @@ const createHarvest = async (req, res, next) => {
       storageType, storageCondition, farmerLocation, notes,
     } = req.body;
 
-    const harvest = await Harvest.create({
-      farmerId: req.farmer._id,
+    const harvest = await prisma.harvest.create({
+      data: toPrismaData({
+      farmerId: req.farmer.id,
       crop, variety, quantity, unit, initialWeight,
       harvestDate, harvestTime, maturityStage,
       storageType, storageCondition,
       farmerLocation: farmerLocation || req.farmer.location,
       notes,
+      }),
     });
 
-    res.status(201).json(harvest);
+    res.status(201).json(toApiRecord(harvest));
   } catch (err) {
     next(err);
   }
@@ -35,10 +37,12 @@ const createHarvest = async (req, res, next) => {
 const getHarvests = async (req, res, next) => {
   try {
     const { status } = req.query;
-    const filter = { farmerId: req.farmer._id };
-    if (status) filter.status = status;
-    const harvests = await Harvest.find(filter).sort({ createdAt: -1 });
-    res.json(harvests);
+    if (status && !['Active', 'Sold', 'Spoiled', 'Archived'].includes(status)) return res.json([]);
+    const harvests = await prisma.harvest.findMany({
+      where: { farmerId: req.farmer.id, ...(status && { status }) },
+      orderBy: { createdAt: 'desc' },
+    });
+    res.json(toApiRecords(harvests));
   } catch (err) {
     next(err);
   }
@@ -47,9 +51,9 @@ const getHarvests = async (req, res, next) => {
 // GET /api/harvests/:id
 const getHarvest = async (req, res, next) => {
   try {
-    const harvest = await Harvest.findOne({ _id: req.params.id, farmerId: req.farmer._id });
+    const harvest = await prisma.harvest.findFirst({ where: { id: req.params.id, farmerId: req.farmer.id } });
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });
-    res.json(harvest);
+    res.json(toApiRecord(harvest));
   } catch (err) {
     next(err);
   }
@@ -64,13 +68,12 @@ const updateHarvest = async (req, res, next) => {
         .map((field) => [field, req.body[field]])
     );
 
-    const harvest = await Harvest.findOneAndUpdate(
-      { _id: req.params.id, farmerId: req.farmer._id },
-      updates,
-      { new: true, runValidators: true }
-    );
+    const owned = await prisma.harvest.findFirst({ where: { id: req.params.id, farmerId: req.farmer.id } });
+    const harvest = owned
+      ? await prisma.harvest.update({ where: { id: owned.id }, data: toPrismaData(updates) })
+      : null;
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });
-    res.json(harvest);
+    res.json(toApiRecord(harvest));
   } catch (err) {
     next(err);
   }
@@ -79,7 +82,7 @@ const updateHarvest = async (req, res, next) => {
 // POST /api/harvests/:id/quality-observations
 const submitQualityObservation = async (req, res, next) => {
   try {
-    const harvest = await Harvest.findOne({ _id: req.params.id, farmerId: req.farmer._id });
+    const harvest = await prisma.harvest.findFirst({ where: { id: req.params.id, farmerId: req.farmer.id } });
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });
 
     const observedAt = new Date(req.body.observedAt);
@@ -95,21 +98,17 @@ const submitQualityObservation = async (req, res, next) => {
       return res.status(400).json({ message: 'observedAt cannot precede the harvest timestamp' });
     }
 
-    const existingByTimestamp = await QualityObservation.findOne({
-      harvestId: harvest._id,
-      observedAt,
+    const existingByTimestamp = await prisma.qualityObservation.findUnique({
+      where: { harvestId_observedAt: { harvestId: harvest.id, observedAt } },
     });
     if (existingByTimestamp) {
       return res.status(409).json({ message: 'A quality observation already exists for this timestamp' });
     }
 
-    const existingEndpointQuery = QualityObservation.findOne({
-      harvestId: harvest._id,
-      isEndOfSaleableLife: true,
+    const existingEndpoint = await prisma.qualityObservation.findFirst({
+      where: { harvestId: harvest.id, isEndOfSaleableLife: true },
+      orderBy: { observedAt: 'desc' },
     });
-    const existingEndpoint = typeof existingEndpointQuery?.sort === 'function'
-      ? await existingEndpointQuery.sort({ observedAt: -1 })
-      : await existingEndpointQuery;
 
     const isEndOfSaleableLife = Boolean(req.body.isEndOfSaleableLife || req.body.endOfSaleableLifeTimestamp);
     if (existingEndpoint && isEndOfSaleableLife && req.body.forceReplace !== true) {
@@ -131,8 +130,8 @@ const submitQualityObservation = async (req, res, next) => {
     }
 
     const payload = {
-      harvestId: harvest._id,
-      farmerId: req.farmer._id,
+      harvestId: harvest.id,
+      farmerId: req.farmer.id,
       qualityGrade: req.body.qualityGrade,
       saleabilityStatus: req.body.saleabilityStatus,
       visibleSpoilage: req.body.visibleSpoilage,
@@ -147,8 +146,8 @@ const submitQualityObservation = async (req, res, next) => {
       comments: req.body.comments,
     };
 
-    const qualityObservation = await QualityObservation.create(payload);
-    res.status(201).json(qualityObservation);
+    const qualityObservation = await prisma.qualityObservation.create({ data: payload });
+    res.status(201).json(toApiRecord(qualityObservation));
   } catch (err) {
     next(err);
   }
@@ -157,11 +156,14 @@ const submitQualityObservation = async (req, res, next) => {
 // GET /api/harvests/:id/quality-observations
 const getQualityObservations = async (req, res, next) => {
   try {
-    const harvest = await Harvest.findOne({ _id: req.params.id, farmerId: req.farmer._id });
+    const harvest = await prisma.harvest.findFirst({ where: { id: req.params.id, farmerId: req.farmer.id } });
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });
 
-    const observations = await QualityObservation.find({ harvestId: harvest._id }).sort({ observedAt: -1 });
-    res.json(observations);
+    const observations = await prisma.qualityObservation.findMany({
+      where: { harvestId: harvest.id },
+      orderBy: { observedAt: 'desc' },
+    });
+    res.json(toApiRecords(observations));
   } catch (err) {
     next(err);
   }
@@ -170,7 +172,8 @@ const getQualityObservations = async (req, res, next) => {
 // DELETE /api/harvests/:id
 const deleteHarvest = async (req, res, next) => {
   try {
-    const harvest = await Harvest.findOneAndDelete({ _id: req.params.id, farmerId: req.farmer._id });
+    const owned = await prisma.harvest.findFirst({ where: { id: req.params.id, farmerId: req.farmer.id } });
+    const harvest = owned ? await prisma.harvest.delete({ where: { id: owned.id } }) : null;
     if (!harvest) return res.status(404).json({ message: 'Harvest not found' });
     res.json({ message: 'Harvest deleted' });
   } catch (err) {

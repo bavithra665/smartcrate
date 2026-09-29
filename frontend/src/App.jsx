@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { mockFarmer } from './data/mockData';
 import { getCurrentFarmer } from './api/authApi';
 
 import Landing from './pages/Landing';
@@ -24,14 +23,14 @@ function ProtectedRoute({ children, isLoggedIn }) {
 
 export default function App() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [farmer, setFarmer] = useState(mockFarmer);
+  const [farmer, setFarmer] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
   useEffect(() => {
     const handleAuthExpired = () => {
       localStorage.removeItem('sc_auth');
       setIsLoggedIn(false);
-      setFarmer(mockFarmer);
+      setFarmer(null);
     };
 
     const restoreSession = async () => {
@@ -70,11 +69,6 @@ export default function App() {
     setIsLoggedIn(false);
   };
 
-  const handleAddHarvest = (newHarvest) => {
-    // Future: POST /api/harvest — for now just update local state
-    console.log('New harvest added:', newHarvest);
-  };
-
   const handleUpdateFarmer = (updatedFarmer) => {
     // Future: PUT /api/farmer/profile
     setFarmer(updatedFarmer);
@@ -100,7 +94,7 @@ export default function App() {
         } />
         <Route path="/add-harvest" element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
-            <AddHarvest {...dashboardProps} onAddHarvest={handleAddHarvest} />
+            <AddHarvest {...dashboardProps} />
           </ProtectedRoute>
         } />
         <Route path="/prediction" element={
@@ -135,7 +129,7 @@ export default function App() {
         } />
         <Route path="/admin" element={
           <ProtectedRoute isLoggedIn={isLoggedIn}>
-            <Admin {...dashboardProps} />
+            {farmer?.role === 'admin' ? <Admin {...dashboardProps} /> : <Navigate to="/dashboard" replace />}
           </ProtectedRoute>
         } />
 

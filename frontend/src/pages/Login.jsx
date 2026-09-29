@@ -90,10 +90,10 @@ export default function Login({ onLogin }) {
             <span>SmartCrate</span>
           </div>
           <h2 className="login-left-title">
-            Helping Farmers Make Smarter Decisions
+            Grounded Decisions for Every Harvest
           </h2>
           <p className="login-left-desc">
-            Predict shelf life, compare market prices, and get the best selling recommendation for your harvest.
+            Review spoilage risk, source-labeled market data, and farmer-recorded outcomes. Shelf-life regression remains unavailable while longitudinal data is collected.
           </p>
           <div className="login-features">
             <div className="login-feature"><FaShieldAlt /> Secure & Private</div>

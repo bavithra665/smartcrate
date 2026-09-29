@@ -18,6 +18,9 @@ const normalizePricePerKg = (price, unit) => {
   return value / multiplier;
 };
 
+const isSamplePrice = (price) => price?.metadata?.sample === true
+  || /mock|sample|development/i.test(String(price?.source || ''));
+
 const isFresh = (observedAt, now = new Date()) => {
   const timestamp = new Date(observedAt).getTime();
   if (!Number.isFinite(timestamp)) return false;
@@ -44,7 +47,8 @@ const buildReasons = ({ prediction, quantityKg, markets, shelfLife }) => {
   if (freshCount) reasons.push('Latest market price data is available and fresh.');
   else reasons.push('No fresh valid market price is available.');
   markets.filter((market) => market.pricePerKg !== null).forEach((market) => {
-    if (!market.priceFresh) reasons.push(`${market.marketName} price is stale and was not used for the decision.`);
+    if (!market.priceFresh && isSamplePrice(market)) reasons.push(`${market.marketName} uses development/sample market data and was not used for the decision.`);
+    else if (!market.priceFresh) reasons.push(`${market.marketName} price is stale and was not used for the decision.`);
   });
   if (markets.some((market) => market.transportCost === null)) reasons.push('Transport cost is unavailable for one or more markets, so net return is unavailable there.');
   if (markets.some((market) => market.distanceKm === null)) reasons.push('Distance is unavailable for one or more markets.');
@@ -54,18 +58,31 @@ const buildReasons = ({ prediction, quantityKg, markets, shelfLife }) => {
 
 const evaluateDecision = ({ harvest, prediction, markets, now = new Date() }) => {
   const quantityKg = normalizeQuantity(harvest?.quantity, harvest?.unit);
+  const remainingShelfLife = prediction?.remainingShelfLife;
+  const hasShelfLifeModelProvenance = typeof prediction?.shelfLifeModelVersion === 'string'
+    && prediction.shelfLifeModelVersion.trim().length > 0
+    && typeof prediction?.shelfLifeModelSource === 'string'
+    && prediction.shelfLifeModelSource.trim().length > 0;
   const shelfLife = {
-    available: toNumber(prediction?.remainingShelfLife) !== null,
-    remainingDays: toNumber(prediction?.remainingShelfLife),
+    available: typeof remainingShelfLife === 'number'
+      && Number.isFinite(remainingShelfLife)
+      && remainingShelfLife >= 0
+      && hasShelfLifeModelProvenance,
+    remainingDays: typeof remainingShelfLife === 'number'
+      && Number.isFinite(remainingShelfLife)
+      && remainingShelfLife >= 0
+      && hasShelfLifeModelProvenance
+      ? remainingShelfLife
+      : null,
   };
 
   const candidates = markets.map(({ market, price }) => {
     const pricePerKg = normalizePricePerKg(price?.price, price?.unit);
-    const marketPriceFresh = pricePerKg !== null && isFresh(price?.observedAt, now);
+    const marketPriceFresh = pricePerKg !== null && !isSamplePrice(price) && isFresh(price?.observedAt, now);
     const distanceKm = toNumber(market.distance);
     const travelTimeMinutes = toNumber(market.travelTimeMinutes ?? (toNumber(market.travelTimeHours) === null ? null : market.travelTimeHours * 60));
     const transportCost = toNumber(market.transportCost);
-    const grossValue = quantityKg === null || pricePerKg === null ? null : quantityKg * pricePerKg;
+    const grossValue = quantityKg === null || pricePerKg === null || !marketPriceFresh ? null : quantityKg * pricePerKg;
     const netValue = grossValue !== null && transportCost !== null ? grossValue - transportCost : null;
     const candidate = {
       marketId: market._id,
@@ -75,6 +92,7 @@ const evaluateDecision = ({ harvest, prediction, markets, now = new Date() }) =>
       normalizedPricePerKg: pricePerKg,
       currency: price?.currency ?? null,
       observedAt: price?.observedAt ?? null,
+      source: price?.source ?? null,
       priceFresh: marketPriceFresh,
       distanceKm,
       travelTimeMinutes,

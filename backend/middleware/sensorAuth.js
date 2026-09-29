@@ -1,5 +1,5 @@
 const crypto = require('crypto');
-const Device = require('../models/Device');
+const prisma = require('../config/prisma');
 const { protect } = require('./auth');
 
 const hashApiKey = (apiKey) => crypto.createHash('sha256').update(apiKey).digest('hex');
@@ -19,7 +19,7 @@ const sensorAuth = async (req, res, next) => {
   }
 
   try {
-    const device = await Device.findOne({ deviceId, isActive: true }).select('+apiKeyHash');
+    const device = await prisma.device.findFirst({ where: { deviceId, isActive: true } });
     if (!device || !crypto.timingSafeEqual(
       Buffer.from(device.apiKeyHash, 'hex'),
       Buffer.from(hashApiKey(apiKey), 'hex')
@@ -27,7 +27,7 @@ const sensorAuth = async (req, res, next) => {
       return res.status(401).json({ message: 'Unauthorized sensor device' });
     }
     req.sensorDevice = device;
-    await Device.updateOne({ _id: device._id }, { lastSeenAt: new Date() });
+    await prisma.device.update({ where: { id: device.id }, data: { lastSeenAt: new Date() } });
     next();
   } catch (error) {
     next(error);

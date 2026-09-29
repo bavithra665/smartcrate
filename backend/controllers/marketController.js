@@ -1,24 +1,16 @@
-const Market = require('../models/Market');
-const MarketPrice = require('../models/MarketPrice');
+const prisma = require('../config/prisma');
+const { toApiRecord, toApiRecords, toPrismaData } = require('../utils/apiRecord');
 const { syncMarketPrices } = require('../services/marketService');
 
 const normalizeMarketResponse = (market) => ({
-  ...market.toObject ? market.toObject() : market,
-  marketId: market._id || market.marketId,
+  ...toApiRecord(market),
+  marketId: market.id || market.marketId,
   market: market.name,
 });
 
-const executeQuery = async (query, sortObject) => {
-  if (query && typeof query.sort === 'function') {
-    return query.sort(sortObject);
-  }
-  return query;
-};
-
 const getMarkets = async (req, res, next) => {
   try {
-    const marketQuery = Market.find({ isActive: true });
-    const markets = await executeQuery(marketQuery, { name: 1 });
+    const markets = await prisma.market.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
     res.json((Array.isArray(markets) ? markets : []).map(normalizeMarketResponse));
   } catch (err) {
     next(err);
@@ -31,8 +23,12 @@ const getMarketPrices = async (req, res, next) => {
     const filter = { marketId: req.params.id };
     if (crop) filter.crop = crop;
 
-    const prices = await MarketPrice.find(filter).sort({ observedAt: -1 }).limit(30);
-    res.json(prices);
+    const prices = await prisma.marketPrice.findMany({
+      where: filter,
+      orderBy: { observedAt: 'desc' },
+      take: 30,
+    });
+    res.json(toApiRecords(prices));
   } catch (err) {
     next(err);
   }
@@ -43,17 +39,22 @@ const getLatestPricesForCrop = async (req, res, next) => {
     const { crop } = req.query;
     if (!crop) return res.status(400).json({ message: 'crop query param required' });
 
-    const priceQuery = MarketPrice.find({ crop });
-    const prices = await executeQuery(priceQuery, { observedAt: -1 });
-    const limitedPrices = Array.isArray(prices) ? prices.slice(0, 30) : (prices && typeof prices.limit === 'function' ? await prices.limit(30) : prices);
-    const populated = await MarketPrice.populate(limitedPrices, { path: 'marketId', model: 'Market' });
+    const prices = await prisma.marketPrice.findMany({
+      where: { crop },
+      orderBy: { observedAt: 'desc' },
+      take: 30,
+      include: { market: true },
+    });
 
-    res.json((populated || []).map((item) => {
-      const plain = item.toObject ? item.toObject() : item;
+    res.json(prices.map((item) => {
+      const { market: joinedMarket, ...priceRecord } = item;
+      const plain = toApiRecord(priceRecord);
+      const market = toApiRecord(joinedMarket);
       return {
         ...plain,
-        market: plain.marketId ? plain.marketId.name : null,
-        marketName: plain.marketId ? plain.marketId.name : null,
+        marketId: market,
+        market: market ? market.name : null,
+        marketName: market ? market.name : null,
         price: plain.price ?? plain.modalPrice ?? null,
         unit: plain.unit || 'kg',
         currency: plain.currency || 'INR',
@@ -68,8 +69,36 @@ const getLatestPricesForCrop = async (req, res, next) => {
 
 const createMarket = async (req, res, next) => {
   try {
-    const market = await Market.create(req.body);
-    res.status(201).json(market);
+    const market = await prisma.market.create({
+      data: toPrismaData({
+        name: req.body.name.trim(),
+        location: req.body.location.trim(),
+        city: req.body.city?.trim(),
+        district: req.body.district?.trim(),
+        state: req.body.state?.trim(),
+        marketType: req.body.marketType,
+        isActive: req.body.isActive,
+        distance: req.body.distance,
+        travelTime: req.body.travelTime?.trim(),
+        travelTimeHours: req.body.travelTimeHours,
+        transportCost: req.body.transportCost,
+        ...(Array.isArray(req.body.supportedCrops) && {
+          supportedCrops: req.body.supportedCrops.map((crop) => String(crop).trim()),
+        }),
+        ...(req.body.coordinates && {
+          coordinates: {
+            ...(req.body.coordinates.lat !== undefined && {
+              lat: req.body.coordinates.lat === null ? null : Number(req.body.coordinates.lat),
+            }),
+            ...(req.body.coordinates.lng !== undefined && {
+              lng: req.body.coordinates.lng === null ? null : Number(req.body.coordinates.lng),
+            }),
+          },
+        }),
+        metadata: req.body.metadata || {},
+      }),
+    });
+    res.status(201).json(toApiRecord(market));
   } catch (err) {
     next(err);
   }
@@ -78,16 +107,24 @@ const createMarket = async (req, res, next) => {
 const addMarketPrice = async (req, res, next) => {
   try {
     const payload = {
-      ...req.body,
+      marketId: req.body.marketId,
+      crop: req.body.crop.trim(),
       price: req.body.price ?? req.body.modalPrice,
       observedAt: req.body.observedAt || req.body.date || new Date().toISOString(),
       unit: req.body.unit || 'kg',
       currency: req.body.currency || 'INR',
+      source: req.body.source,
+      variety: req.body.variety?.trim(),
       date: req.body.date || req.body.observedAt || new Date().toISOString(),
+      minPrice: req.body.minPrice,
+      maxPrice: req.body.maxPrice,
+      modalPrice: req.body.modalPrice,
+      arrivalQuantity: req.body.arrivalQuantity,
+      metadata: req.body.metadata || {},
     };
 
-    const doc = await MarketPrice.create(payload);
-    res.status(201).json(doc);
+    const doc = await prisma.marketPrice.create({ data: toPrismaData(payload) });
+    res.status(201).json(toApiRecord(doc));
   } catch (err) {
     next(err);
   }
@@ -98,12 +135,13 @@ const compareMarkets = async (req, res, next) => {
     const { crop, quantity = 100 } = req.query;
     if (!crop) return res.status(400).json({ message: 'crop query param required' });
 
-    const marketQuery = Market.find({ isActive: true });
-    const markets = await executeQuery(marketQuery, { name: 1 });
+    const markets = await prisma.market.findMany({ where: { isActive: true }, orderBy: { name: 'asc' } });
     const results = await Promise.all(
-      (Array.isArray(markets) ? markets : []).map(async (market) => {
-        const priceQuery = MarketPrice.findOne({ marketId: market._id, crop });
-        const priceDoc = await executeQuery(priceQuery, { observedAt: -1 });
+      markets.map(async (market) => {
+        const priceDoc = await prisma.marketPrice.findFirst({
+          where: { marketId: market.id, crop },
+          orderBy: { observedAt: 'desc' },
+        });
         const price = priceDoc?.price ?? null;
         const unit = priceDoc?.unit || 'kg';
         const currency = priceDoc?.currency || 'INR';
@@ -115,7 +153,7 @@ const compareMarkets = async (req, res, next) => {
         const netValue = grossValue !== null && transportCost !== null ? grossValue - transportCost : null;
 
         return {
-          marketId: market._id,
+          marketId: market.id,
           market: market.name,
           name: market.name,
           location: market.location,
